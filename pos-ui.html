@@ -64,6 +64,8 @@
                     setItems([]);
                     setTotals({ subtotal: 0, discount: 0, tax: 0, total: 0 });
                     setReceipt('');
+                    setCashInput('');
+                    setChangeDue(0);
                     return data.order_no;
                 } catch (e) {
                     setErrorMsg('Failed to connect to Order Service. Is Docker running?');
