@@ -1,0 +1,312 @@
+openapi: 3.0.3
+info:
+  title: Retail POS Microservices API
+  description: API documentation for the Retail Point of Sale (POS) backend microservices.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8081
+    description: Order Service
+  - url: http://localhost:8083
+    description: Payment Service
+  - url: http://localhost:8084
+    description: Finalize Service
+  - url: http://localhost:8082
+    description: Telemetry Service
+
+tags:
+  - name: Order Service
+    description: Endpoints for managing carts and items
+  - name: Payment Service
+    description: Endpoints for processing cash
+  - name: Finalize Service
+    description: Endpoints for finalizing orders and generating receipts
+  - name: Telemetry Service
+    description: Internal logging endpoints
+
+paths:
+  /orders:
+    post:
+      tags:
+        - Order Service
+      summary: Create a new order
+      description: Initializes a new cart session with a unique order number and trace ID.
+      servers:
+        - url: http://localhost:8081
+      responses:
+        '200':
+          description: Order created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order_no:
+                    type: string
+                  trace_id:
+                    type: string
+
+  /orders/{orderNo}:
+    get:
+      tags:
+        - Order Service
+      summary: Get order details
+      description: Retrieves the current state of an order including all items, subtotals, and taxes.
+      servers:
+        - url: http://localhost:8081
+      parameters:
+        - name: orderNo
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Order details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '404':
+          description: Order not found
+
+  /orders/{orderNo}/items:
+    post:
+      tags:
+        - Order Service
+      summary: Add item to order
+      description: Adds a product to the cart by SKU.
+      servers:
+        - url: http://localhost:8081
+      parameters:
+        - name: orderNo
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sku:
+                  type: string
+                quantity:
+                  type: integer
+      responses:
+        '200':
+          description: Item added
+        '400':
+          description: Invalid request or SKU
+        '404':
+          description: Item not found in catalog
+
+  /orders/{orderNo}/items/{sku}:
+    delete:
+      tags:
+        - Order Service
+      summary: Void an item
+      description: Completely removes all quantities of an item from the cart.
+      servers:
+        - url: http://localhost:8081
+      parameters:
+        - name: orderNo
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: sku
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Item voided successfully
+        '404':
+          description: Item not found in cart
+
+  /orders/{orderNo}/calculate:
+    post:
+      tags:
+        - Order Service
+      summary: Calculate cart totals
+      description: Calculates subtotals, taxes, and discounts for the current cart.
+      servers:
+        - url: http://localhost:8081
+      parameters:
+        - name: orderNo
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Totals calculated
+
+  /payments:
+    post:
+      tags:
+        - Payment Service
+      summary: Process Cash Payment
+      description: Processes cash payment for a calculated order.
+      servers:
+        - url: http://localhost:8083
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                order_no:
+                  type: string
+                trace_id:
+                  type: string
+                amount:
+                  type: number
+                  format: float
+                cash_received:
+                  type: number
+                  format: float
+      responses:
+        '200':
+          description: Payment successful
+        '400':
+          description: Insufficient cash received
+
+  /finalize:
+    post:
+      tags:
+        - Finalize Service
+      summary: Finalize Order
+      description: Closes the order and deducts items from inventory stock.
+      servers:
+        - url: http://localhost:8084
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                order_no:
+                  type: string
+                trace_id:
+                  type: string
+      responses:
+        '200':
+          description: Order finalized successfully
+        '400':
+          description: Order not paid
+
+  /orders/{orderNo}/receipt:
+    get:
+      tags:
+        - Finalize Service
+      summary: Generate Receipt
+      description: Generates a formatted text receipt for a COMPLETED order.
+      servers:
+        - url: http://localhost:8084
+      parameters:
+        - name: orderNo
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Receipt generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order_no:
+                    type: string
+                  receipt_text:
+                    type: string
+
+  /telemetry/logs:
+    post:
+      tags:
+        - Telemetry Service
+      summary: Ingest Telemetry Logs
+      description: Internal endpoint that receives JSON structured logs from all microservices.
+      servers:
+        - url: http://localhost:8082
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/POSLog'
+      responses:
+        '202':
+          description: Log ingested
+
+components:
+  schemas:
+    Order:
+      type: object
+      properties:
+        order_no:
+          type: string
+        trace_id:
+          type: string
+        status:
+          type: string
+        subtotal:
+          type: number
+          format: float
+        discount:
+          type: number
+          format: float
+        tax:
+          type: number
+          format: float
+        total:
+          type: number
+          format: float
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderItem'
+            
+    OrderItem:
+      type: object
+      properties:
+        sku:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+        quantity:
+          type: integer
+        unit_price:
+          type: number
+          format: float
+        total:
+          type: number
+          format: float
+
+    POSLog:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        level:
+          type: string
+        service:
+          type: string
+        message:
+          type: string
+        trace_id:
+          type: string
+        order_no:
+          type: string
+        metadata:
+          type: object

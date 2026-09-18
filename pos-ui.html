@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modern POS UI</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gray-100">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const ORDER_API = 'http://localhost:8081';
+        const PAYMENT_API = 'http://localhost:8083';
+        const FINALIZE_API = 'http://localhost:8084';
+
+        const TOP_ITEMS = [
+            { sku: '100001', name: 'Coca-Cola 12-Pack', price: 6.99 },
+            { sku: '100002', name: "Lay's Potato Chips", price: 4.50 },
+            { sku: '100003', name: 'Whole Wheat Bread', price: 3.49 },
+            { sku: '100004', name: 'Gallon Whole Milk', price: 4.29 },
+            { sku: '100005', name: 'Oreo Cookies', price: 5.00 },
+            { sku: '100008', name: 'Fresh Apples (Bag)', price: 5.99 },
+            { sku: '100037', name: 'Ground Beef', price: 7.99 },
+            { sku: '100109', name: 'Laundry Detergent', price: 12.99 }
+        ];
+
+        function App() {
+            const [orderNo, setOrderNo] = useState('');
+            const [traceId, setTraceId] = useState('');
+            const [items, setItems] = useState([]);
+            const [totals, setTotals] = useState({ subtotal: 0, discount: 0, tax: 0, total: 0 });
+            
+            const [skuInput, setSkuInput] = useState('');
+            const [cashInput, setCashInput] = useState('');
+            
+            const [status, setStatus] = useState('IDLE'); // IDLE, OPEN, PAID, COMPLETED
+            const [receipt, setReceipt] = useState('');
+            const [errorMsg, setErrorMsg] = useState('');
+
+            // Initialize icons after render
+            useEffect(() => {
+                // lucide.createIcons();
+            });
+
+            const createOrder = async () => {
+                try {
+                    setErrorMsg('');
+                    const res = await fetch(`${ORDER_API}/orders`, { method: 'POST' });
+                    const data = await res.json();
+                    setOrderNo(data.order_no);
+                    setTraceId(data.trace_id);
+                    setStatus('OPEN');
+                    setItems([]);
+                    setTotals({ subtotal: 0, discount: 0, tax: 0, total: 0 });
+                    setReceipt('');
+                    return data.order_no;
+                } catch (e) {
+                    setErrorMsg('Failed to connect to Order Service. Is Docker running?');
+                    return null;
+                }
+            };
+
+            const fetchOrderDetails = async (oNo) => {
+                try {
+                    const res = await fetch(`${ORDER_API}/orders/${oNo}`);
+                    const data = await res.json();
+                    setItems(data.items || []);
+                    setTotals({
+                        subtotal: data.subtotal,
+                        discount: data.discount,
+                        tax: data.tax,
+                        total: data.total
+                    });
+                } catch (e) {
+                    console.error(e);
+                }
+            };
+
+            const addItem = async (sku) => {
+                let currentOrderNo = orderNo;
+                if (!currentOrderNo) {
+                    currentOrderNo = await createOrder();
+                    if (!currentOrderNo) return;
+                }
+
+                try {
+                    setErrorMsg('');
+                    const res = await fetch(`${ORDER_API}/orders/${currentOrderNo}/items`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ sku, quantity: 1 })
+                    });
+                    
+                    const data = await res.json();
+                    if (!res.ok) {
+                        setErrorMsg(data.message || 'Error adding item');
+                        return;
+                    }
+                    
+                    await fetch(`${ORDER_API}/orders/${currentOrderNo}/calculate`, { method: 'POST' });
+                    await fetchOrderDetails(currentOrderNo);
+                    setSkuInput('');
+                } catch (e) {
+                    setErrorMsg('Failed to add item');
+                }
+            };
+
+            const voidItem = async (sku) => {
+                try {
+                    setErrorMsg('');
+                    const res = await fetch(`${ORDER_API}/orders/${orderNo}/items/${sku}`, { method: 'DELETE' });
+                    if (!res.ok) {
+                        const data = await res.json();
+                        setErrorMsg(data.message || 'Error voiding item');
+                        return;
+                    }
+                    await fetch(`${ORDER_API}/orders/${orderNo}/calculate`, { method: 'POST' });
+                    await fetchOrderDetails(orderNo);
+                } catch (e) {
+                    setErrorMsg('Failed to void item');
+                }
+            };
+
+            const payCash = async () => {
+                if (!cashInput || isNaN(cashInput)) {
+                    setErrorMsg('Please enter a valid cash amount');
+                    return;
+                }
+                
+                try {
+                    setErrorMsg('');
+                    const res = await fetch(`${PAYMENT_API}/payments`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            order_no: orderNo,
+                            trace_id: traceId,
+                            amount: totals.total,
+                            cash_received: parseInt(cashInput || '0', 10) / 100
+                        })
+                    });
+                    const data = await res.json();
+                    
+                    if (!res.ok) {
+                        setErrorMsg(data.message || 'Payment failed');
+                        return;
+                    }
+                    
+                    setStatus('PAID');
+                } catch (e) {
+                    setErrorMsg('Payment request failed');
+                }
+            };
+
+            const finalizeOrder = async () => {
+                try {
+                    setErrorMsg('');
+                    const res = await fetch(`${FINALIZE_API}/finalize`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ order_no: orderNo, trace_id: traceId })
+                    });
+                    
+                    if (!res.ok) {
+                        const data = await res.json();
+                        setErrorMsg(data.message || 'Finalize failed');
+                        return;
+                    }
+                    
+                    setStatus('COMPLETED');
+                    
+                    const recRes = await fetch(`${FINALIZE_API}/orders/${orderNo}/receipt`);
+                    const recData = await recRes.json();
+                    setReceipt(recData.receipt_text);
+                    
+                } catch (e) {
+                    setErrorMsg('Finalize request failed');
+                }
+            };
+
+            return (
+                <div className="min-h-screen p-4 md:p-8 font-sans">
+                    <div className="max-w-6xl mx-auto bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row h-[85vh]">
+                        
+                        {/* LEFT PANEL: Cart & Checkout */}
+                        <div className="w-full md:w-1/3 border-r border-gray-200 flex flex-col bg-gray-50">
+                            <div className="p-5 bg-gradient-to-r from-gray-900 to-gray-800 text-white flex justify-between items-center shadow-md">
+                                <h1 className="text-xl font-bold flex items-center gap-3">
+                                    🛒 Retail POS
+                                </h1>
+                                <div className="flex items-center gap-3">
+                                    {status !== 'IDLE' && <span className="text-xs font-mono bg-gray-700/50 px-2 py-1 rounded-md border border-gray-600">{orderNo}</span>}
+                                    <button onClick={() => window.open('monitor-ui.html', '_blank', 'width=1200,height=800')} className="text-xs bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-md font-bold transition flex items-center gap-1 shadow">
+                                        📊 Monitor
+                                    </button>
+                                </div>
+                            </div>
+
+                            {errorMsg && (
+                                <div className="bg-red-50 text-red-700 p-4 text-sm border-b border-red-200 font-medium flex items-center gap-2">
+                                    ⚠️
+                                    {errorMsg}
+                                </div>
+                            )}
+
+                            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                                {items.length === 0 ? (
+                                    <div className="h-full flex flex-col items-center justify-center text-gray-400">
+                                        <div className="text-6xl mb-3 opacity-30">📦</div>
+                                        <p className="font-medium text-gray-500">Cart is empty</p>
+                                    </div>
+                                ) : (
+                                    items.map((item, idx) => (
+                                        <div key={idx} className="bg-white p-3 rounded-lg shadow-sm border border-gray-100 flex justify-between items-center group transition-all hover:shadow-md">
+                                            <div>
+                                                <h4 className="font-bold text-gray-800">{item.name}</h4>
+                                                <div className="flex items-center gap-2 mt-1">
+                                                    <span className="text-xs font-mono text-gray-500 bg-gray-100 px-2 py-0.5 rounded">SKU: {item.sku}</span>
+                                                    <span className="text-xs text-gray-500">Qty: {item.quantity}</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <span className="font-bold text-gray-900 text-lg">${item.total.toFixed(2)}</span>
+                                                {status === 'OPEN' && (
+                                                    <button onClick={() => voidItem(item.sku)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded transition" title="Void Item">
+                                                        🗑️
+                                                    </button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+
+                            <div className="p-5 bg-white border-t border-gray-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
+                                <div className="space-y-2 text-sm text-gray-600 mb-5">
+                                    <div className="flex justify-between font-medium"><span>Subtotal:</span> <span>${totals.subtotal.toFixed(2)}</span></div>
+                                    <div className="flex justify-between text-green-600 font-medium"><span>Discount:</span> <span>-${totals.discount.toFixed(2)}</span></div>
+                                    <div className="flex justify-between font-medium"><span>Tax:</span> <span>${totals.tax.toFixed(2)}</span></div>
+                                    <div className="flex justify-between text-2xl font-black text-gray-900 mt-3 pt-3 border-t border-gray-200">
+                                        <span>Total:</span> <span>${totals.total.toFixed(2)}</span>
+                                    </div>
+                                </div>
+
+                                {status === 'IDLE' || status === 'COMPLETED' ? (
+                                    <button onClick={createOrder} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition shadow-lg shadow-blue-200">
+                                        Start New Order ▶️
+                                    </button>
+                                ) : status === 'OPEN' ? (
+                                    <div className="flex gap-2">
+                                        <div className="relative flex-1">
+                                            <span className="absolute left-3 top-4 text-gray-500 font-bold">$</span>
+                                            <input 
+                                                type="text" 
+                                                placeholder="0.00" 
+                                                className="w-full pl-8 pr-3 py-4 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-lg"
+                                                value={cashInput ? (parseInt(cashInput || '0', 10) / 100).toFixed(2) : ''}
+                                                onChange={e => setCashInput(e.target.value.replace(/\D/g, ''))}
+                                            />
+                                        </div>
+                                        <button 
+                                            onClick={payCash}
+                                            disabled={items.length === 0}
+                                            className="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:text-gray-500 disabled:shadow-none text-white font-bold py-4 px-8 rounded-xl transition shadow-lg shadow-green-200"
+                                        >
+                                            Pay
+                                        </button>
+                                    </div>
+                                ) : status === 'PAID' ? (
+                                    <button onClick={finalizeOrder} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition shadow-lg shadow-purple-200">
+                                        🧾 Print Receipt & Finalize
+                                    </button>
+                                ) : null}
+                            </div>
+                        </div>
+
+                        {/* RIGHT PANEL: Search & Quick Items */}
+                        <div className="w-full md:w-2/3 bg-gray-50/50 p-6 flex flex-col relative">
+                            {status === 'COMPLETED' && receipt ? (
+                                <div className="absolute inset-0 bg-gray-100 flex flex-col items-center justify-center p-8 z-10">
+                                    <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md transform scale-100 transition-transform">
+                                        <div className="flex justify-between items-center mb-6">
+                                            <h2 className="text-xl font-bold text-gray-800">Transaction Complete</h2>
+                                            ✅
+                                        </div>
+                                        <pre className="font-mono text-xs md:text-sm text-gray-700 bg-gray-50 p-6 rounded-lg border border-gray-100 whitespace-pre-wrap mb-6">
+                                            {receipt}
+                                        </pre>
+                                        <button onClick={createOrder} className="w-full bg-gray-900 hover:bg-gray-800 text-white font-bold py-3 rounded-lg transition">
+                                            Start New Order
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : null}
+                            
+                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mb-6">
+                                <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                                    🔍 Manual SKU Entry
+                                </h3>
+                                <form onSubmit={e => { e.preventDefault(); addItem(skuInput); }} className="flex gap-3">
+                                    <input 
+                                        type="text" 
+                                        placeholder="Scan or type SKU (e.g. 100001)" 
+                                        className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-lg transition-all"
+                                        value={skuInput}
+                                        onChange={e => setSkuInput(e.target.value)}
+                                        disabled={status !== 'OPEN' && status !== 'IDLE'}
+                                    />
+                                    <button 
+                                        type="submit" 
+                                        disabled={(status !== 'OPEN' && status !== 'IDLE') || !skuInput}
+                                        className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold py-3 px-8 rounded-xl transition"
+                                    >
+                                        Add Item
+                                    </button>
+                                </form>
+                            </div>
+
+                            <div className="flex-1">
+                                <h3 className="font-bold text-gray-800 mb-4 text-lg">Most Purchased Items</h3>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                    {TOP_ITEMS.map(item => (
+                                        <button 
+                                            key={item.sku}
+                                            onClick={() => addItem(item.sku)}
+                                            disabled={status !== 'OPEN' && status !== 'IDLE'}
+                                            className="bg-white hover:bg-blue-50 hover:border-blue-200 disabled:hover:bg-white disabled:opacity-50 p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center transition-all group active:scale-95"
+                                        >
+                                            <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mb-3 group-hover:bg-blue-100 transition-colors">
+                                                🏷️
+                                            </div>
+                                            <span className="font-bold text-gray-800 text-sm mb-1 line-clamp-2">{item.name}</span>
+                                            <span className="text-blue-600 font-black">${item.price.toFixed(2)}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
+
+

@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: posdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d posdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  telemetry-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: telemetry-service
+    ports:
+      - "8085:8085"
+    environment:
+      - RETAIL_AI_BACKEND_URL=${RETAIL_AI_BACKEND_URL:-}
+    depends_on:
+      - postgres
+
+  order-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: order-service
+    ports:
+      - "8081:8081"
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/posdb?sslmode=disable
+      - RETAIL_AI_BACKEND_URL=http://telemetry-service:8085/ingest
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: payment-service
+    ports:
+      - "8083:8083"
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/posdb?sslmode=disable
+      - RETAIL_AI_BACKEND_URL=http://telemetry-service:8085/ingest
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  finalize-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_NAME: finalize-service
+    ports:
+      - "8084:8084"
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/posdb?sslmode=disable
+      - RETAIL_AI_BACKEND_URL=http://telemetry-service:8085/ingest
+    depends_on:
+      postgres:
+        condition: service_healthy
