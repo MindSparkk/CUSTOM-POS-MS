@@ -260,23 +260,35 @@
                                         Start New Order ▶️
                                     </button>
                                 ) : status === 'OPEN' ? (
-                                    <div className="flex gap-2">
-                                        <div className="relative flex-1">
-                                            <span className="absolute left-3 top-4 text-gray-500 font-bold">$</span>
-                                            <input 
-                                                type="text" 
-                                                placeholder="0.00" 
-                                                className="w-full pl-8 pr-3 py-4 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-lg"
-                                                value={cashInput ? (parseInt(cashInput || '0', 10) / 100).toFixed(2) : ''}
-                                                onChange={e => setCashInput(e.target.value.replace(/\D/g, ''))}
-                                            />
+                                    <button 
+                                        onClick={() => setStatus('CHECKOUT')} 
+                                        disabled={items.length === 0}
+                                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-500 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition shadow-lg shadow-blue-200"
+                                    >
+                                        Proceed to Checkout ▶️
+                                    </button>
+                                ) : status === 'CHECKOUT' ? (
+                                    <div className="flex flex-col gap-3">
+                                        <div className="flex gap-2">
+                                            <div className="relative flex-1">
+                                                <span className="absolute left-3 top-4 text-gray-500 font-bold">$</span>
+                                                <input 
+                                                    type="text" 
+                                                    placeholder="0.00" 
+                                                    className="w-full pl-8 pr-3 py-4 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-lg"
+                                                    value={cashInput ? (parseInt(cashInput || '0', 10) / 100).toFixed(2) : ''}
+                                                    onChange={e => setCashInput(e.target.value.replace(/\D/g, ''))}
+                                                />
+                                            </div>
+                                            <button 
+                                                onClick={payCash}
+                                                className="bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-8 rounded-xl transition shadow-lg shadow-green-200"
+                                            >
+                                                Pay
+                                            </button>
                                         </div>
-                                        <button 
-                                            onClick={payCash}
-                                            disabled={items.length === 0}
-                                            className="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 disabled:text-gray-500 disabled:shadow-none text-white font-bold py-4 px-8 rounded-xl transition shadow-lg shadow-green-200"
-                                        >
-                                            Pay
+                                        <button onClick={() => setStatus('OPEN')} className="text-sm text-gray-500 font-medium hover:text-gray-700">
+                                            ← Back to Cart
                                         </button>
                                     </div>
                                 ) : status === 'PAID' ? (
