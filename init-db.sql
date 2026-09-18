@@ -86,7 +86,7 @@ INSERT INTO items (sku, name, category, price, tax_rate, stock_quantity, promo_c
 ('100034', 'Cream Cheese', 'Dairy', 3.49, 8.50, 197, NULL, NULL, 0),
 ('100035', 'Heavy Cream', 'Dairy', 4.99, 8.50, 80, NULL, NULL, 0),
 ('100036', 'Cottage Cheese', 'Dairy', 3.99, 8.50, 163, NULL, NULL, 0),
-('100037', 'Ground Beef', 'Meat', 7.99, 8.50, 185, NULL, NULL, 0),
+('100037', 'Ground Meat', 'Meat', 7.99, 8.50, 185, NULL, NULL, 0),
 ('100038', 'Chicken Breasts', 'Meat', 9.99, 8.50, 36, NULL, NULL, 0),
 ('100039', 'Chicken Thighs', 'Meat', 6.99, 8.50, 183, NULL, NULL, 0),
 ('100040', 'Pork Chops', 'Meat', 8.99, 8.50, 68, NULL, NULL, 0),
