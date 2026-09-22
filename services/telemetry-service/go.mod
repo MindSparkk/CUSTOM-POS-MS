@@ -5,4 +5,7 @@ go 1.24.5
 require (
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/rs/cors v1.11.1 // indirect
+	retail-pos/pkg v0.0.0
 )
+
+replace retail-pos/pkg => ../../pkg

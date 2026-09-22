@@ -35,7 +35,8 @@ func (h *TelemetryHandler) Enabled(ctx context.Context, level slog.Level) bool {
 
 func (h *TelemetryHandler) Handle(ctx context.Context, r slog.Record) error {
 	// Parse attributes
-	var traceID, orderNo, errorCode string
+	var traceID, orderNo, errorCode, operation string
+	var httpStatus int
 	metadata := make(map[string]interface{})
 
 	r.Attrs(func(a slog.Attr) bool {
@@ -46,6 +47,16 @@ func (h *TelemetryHandler) Handle(ctx context.Context, r slog.Record) error {
 			orderNo = a.Value.String()
 		case "error_code":
 			errorCode = a.Value.String()
+		case "operation":
+			operation = a.Value.String()
+		case "http_status":
+			if val, ok := a.Value.Any().(int); ok {
+				httpStatus = val
+			} else if val64, ok := a.Value.Any().(int64); ok {
+				httpStatus = int(val64)
+			} else {
+				httpStatus = int(a.Value.Int64())
+			}
 		default:
 			metadata[a.Key] = a.Value.Any()
 		}
@@ -53,14 +64,16 @@ func (h *TelemetryHandler) Handle(ctx context.Context, r slog.Record) error {
 	})
 
 	logEntry := models.POSLog{
-		Timestamp: r.Time,
-		TraceID:   traceID,
-		OrderNo:   orderNo,
-		Service:   h.serviceName,
-		Level:     r.Level.String(),
-		ErrorCode: errorCode,
-		Message:   r.Message,
-		Metadata:  metadata,
+		Timestamp:  r.Time,
+		TraceID:    traceID,
+		OrderNo:    orderNo,
+		Service:    h.serviceName,
+		Operation:  operation,
+		Level:      r.Level.String(),
+		HTTPStatus: httpStatus,
+		ErrorCode:  errorCode,
+		Message:    r.Message,
+		Metadata:   metadata,
 	}
 
 	// Also print locally as JSON

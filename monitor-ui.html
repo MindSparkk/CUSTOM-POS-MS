@@ -11,14 +11,14 @@
     <style>
         .log-enter { animation: fadeIn 0.2s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
-        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
 </head>
-<body class="bg-gray-100 text-gray-800 h-screen overflow-hidden font-sans flex flex-col">
-    <div id="root" class="h-full"></div>
+<body class="bg-gray-100 text-gray-800 h-screen w-screen overflow-hidden font-sans flex flex-col">
+    <div id="root" class="h-full w-full"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
@@ -26,14 +26,14 @@
         const TELEMETRY_API = 'http://localhost:8085';
         const SERVICES = ['order-service', 'payment-service', 'finalize-service'];
         const SERVICE_TITLES = {
-            'order-service': 'Order Logs',
-            'payment-service': 'Payment Logs',
-            'finalize-service': 'Finalize Logs'
+            'order-service': 'Order Service Logs',
+            'payment-service': 'Payment Service Logs',
+            'finalize-service': 'Finalize Service Logs'
         };
         const SERVICE_COLORS = {
-            'order-service': 'border-blue-200 bg-blue-50 text-blue-900',
-            'payment-service': 'border-green-200 bg-green-50 text-green-900',
-            'finalize-service': 'border-purple-200 bg-purple-50 text-purple-900',
+            'order-service': 'border-blue-200 bg-blue-50/50 text-blue-900',
+            'payment-service': 'border-green-200 bg-green-50/50 text-green-900',
+            'finalize-service': 'border-purple-200 bg-purple-50/50 text-purple-900',
         };
 
         function LogColumn({ title, logs, colorClass }) {
@@ -44,32 +44,41 @@
             }, [logs]);
 
             return (
-                <div className={`flex flex-col h-full rounded-xl border ${colorClass} shadow-sm overflow-hidden`}>
-                    <div className="p-3 border-b border-inherit bg-white/50 font-bold flex justify-between items-center shrink-0">
-                        <span>{title}</span>
-                        <span className="text-xs px-2 py-1 bg-white rounded-full border border-inherit shadow-sm">{logs.length} events</span>
+                <div className={`flex flex-col h-full rounded-xl border ${colorClass} shadow-sm overflow-hidden min-h-0 bg-white`}>
+                    <div className="p-2.5 sm:p-3 border-b border-inherit bg-white font-bold flex justify-between items-center shrink-0">
+                        <span className="text-xs sm:text-sm">{title}</span>
+                        <span className="text-[10px] sm:text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full border border-gray-200 font-mono shadow-sm">{logs.length} events</span>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-3 space-y-3 font-mono text-sm">
-                        {logs.map((log, i) => (
-                            <div key={i} className="log-enter p-3 rounded-lg bg-white border border-gray-100 shadow-sm break-words">
-                                <div className="flex justify-between text-[11px] text-gray-500 mb-2 border-b border-gray-50 pb-1">
-                                    <span>{new Date(log.timestamp).toLocaleTimeString()}</span>
-                                    <span className={log.level === 'ERROR' ? 'text-red-500 font-bold bg-red-50 px-1 rounded' : 'font-semibold'}>{log.level}</span>
-                                </div>
-                                <div className="text-gray-800 font-semibold mb-1">{log.message}</div>
-                                
-                                {(log.trace_id || log.order_no || (log.metadata && Object.keys(log.metadata).length > 0)) && (
-                                    <div className="mt-2 pt-2 border-t border-gray-50 text-[11px] text-gray-600 bg-gray-50/50 p-2 rounded">
-                                        {log.order_no && <div className="mb-1"><span className="font-bold text-gray-400">Order:</span> {log.order_no}</div>}
-                                        {log.trace_id && <div className="mb-1"><span className="font-bold text-gray-400">Trace:</span> {log.trace_id}</div>}
-                                        {log.metadata && Object.entries(log.metadata).map(([k, v]) => (
-                                            <div key={k}><span className="font-bold text-gray-400">{k}:</span> {String(v)}</div>
-                                        ))}
-                                    </div>
-                                )}
+                    <div className="flex-1 overflow-y-auto p-2 sm:p-3 space-y-2.5 font-mono text-xs min-h-0">
+                        {logs.length === 0 ? (
+                            <div className="h-full flex items-center justify-center text-gray-400 text-xs italic">
+                                Waiting for telemetry...
                             </div>
-                        ))}
-                        <div ref={endRef} className="h-2 shrink-0"></div>
+                        ) : (
+                            logs.map((log, i) => (
+                                <div key={i} className="log-enter p-2.5 rounded-lg bg-white border border-gray-200 shadow-sm break-words">
+                                    <div className="flex justify-between text-[10px] text-gray-500 mb-1 border-b border-gray-100 pb-1">
+                                        <span>{new Date(log.timestamp).toLocaleTimeString()}</span>
+                                        <span className={log.level === 'ERROR' ? 'text-red-600 font-bold bg-red-50 px-1.5 py-0.5 rounded border border-red-200' : 'font-semibold text-gray-600'}>
+                                            {log.level} {log.http_status ? `(${log.http_status})` : ''}
+                                        </span>
+                                    </div>
+                                    <div className="text-gray-900 font-semibold mb-1 text-xs">{log.message}</div>
+                                    
+                                    {(log.trace_id || log.order_no || log.error_code || (log.metadata && Object.keys(log.metadata).length > 0)) && (
+                                        <div className="mt-1.5 pt-1.5 border-t border-gray-100 text-[10px] text-gray-600 bg-gray-50 p-1.5 rounded space-y-0.5">
+                                            {log.error_code && <div className="text-red-600 font-bold"><span className="text-gray-400">Error Code:</span> {log.error_code}</div>}
+                                            {log.order_no && <div><span className="font-bold text-gray-400">Order:</span> {log.order_no}</div>}
+                                            {log.trace_id && <div><span className="font-bold text-gray-400">Trace:</span> {log.trace_id}</div>}
+                                            {log.metadata && Object.entries(log.metadata).map(([k, v]) => (
+                                                <div key={k}><span className="font-bold text-gray-400">{k}:</span> {String(v)}</div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            ))
+                        )}
+                        <div ref={endRef} className="h-1 shrink-0"></div>
                     </div>
                 </div>
             );
@@ -102,20 +111,18 @@
             }, []);
 
             return (
-                <div className="h-full flex flex-col p-4 md:p-6 mx-auto w-full max-w-7xl">
-                    <header className="mb-4 flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-200 shrink-0">
-                        <div>
-                            <h1 className="text-xl font-bold flex items-center gap-2 text-gray-800">
-                                📊 POS Systems Monitor
-                            </h1>
-                        </div>
-                        <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
+                <div className="h-full w-full flex flex-col p-2 sm:p-4 mx-auto max-w-7xl overflow-hidden">
+                    <header className="mb-3 flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border border-gray-200 shrink-0">
+                        <h1 className="text-base sm:text-lg font-bold flex items-center gap-2 text-gray-800">
+                            📊 Telemetry Monitor (Live Real-Time Stream)
+                        </h1>
+                        <div className="flex items-center gap-2 bg-gray-50 px-3 py-1 rounded-lg border border-gray-200 shrink-0">
                             <div className={`w-2.5 h-2.5 rounded-full ${connected ? 'bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-red-500'}`}></div>
-                            <span className="text-xs font-bold text-gray-600 tracking-wider">{connected ? 'LIVE' : 'OFFLINE'}</span>
+                            <span className="text-xs font-bold text-gray-600 tracking-wider">{connected ? 'LIVE STREAM' : 'DISCONNECTED'}</span>
                         </div>
                     </header>
                     
-                    <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4 min-h-0 overflow-hidden pb-2">
+                    <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3 min-h-0 overflow-hidden">
                         {SERVICES.map(svc => (
                             <LogColumn 
                                 key={svc} 

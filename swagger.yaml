@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Retail POS Microservices API
   description: API documentation for the Retail Point of Sale (POS) backend microservices.
-  version: 1.0.0
+  version: 1.1.0
 servers:
   - url: http://localhost:8081
     description: Order Service
@@ -10,7 +10,7 @@ servers:
     description: Payment Service
   - url: http://localhost:8084
     description: Finalize Service
-  - url: http://localhost:8082
+  - url: http://localhost:8085
     description: Telemetry Service
 
 tags:
@@ -21,9 +21,27 @@ tags:
   - name: Finalize Service
     description: Endpoints for finalizing orders and generating receipts
   - name: Telemetry Service
-    description: Internal logging endpoints
+    description: Logging, ingestion, and real-time streaming endpoints
 
 paths:
+  /health:
+    get:
+      summary: Health Check Endpoint
+      description: Returns health status of the service (Available on ports 8081, 8083, 8084, 8085).
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                  status:
+                    type: string
+                    example: UP
+
   /orders:
     post:
       tags:
@@ -42,8 +60,10 @@ paths:
                 properties:
                   order_no:
                     type: string
+                    example: ORD-10025
                   trace_id:
                     type: string
+                    example: TRC-82931
 
   /orders/{orderNo}:
     get:
@@ -92,22 +112,22 @@ paths:
               properties:
                 sku:
                   type: string
+                  example: "100001"
                 quantity:
                   type: integer
+                  example: 2
       responses:
         '200':
           description: Item added
-        '400':
-          description: Invalid request or SKU
         '404':
-          description: Item not found in catalog
+          description: SKU not found
 
   /orders/{orderNo}/items/{sku}:
     delete:
       tags:
         - Order Service
-      summary: Void an item
-      description: Completely removes all quantities of an item from the cart.
+      summary: Void item from cart
+      description: Removes an item SKU from the active open order cart.
       servers:
         - url: http://localhost:8081
       parameters:
@@ -123,7 +143,7 @@ paths:
             type: string
       responses:
         '200':
-          description: Item voided successfully
+          description: Item voided from cart
         '404':
           description: Item not found in cart
 
@@ -131,8 +151,8 @@ paths:
     post:
       tags:
         - Order Service
-      summary: Calculate cart totals
-      description: Calculates subtotals, taxes, and discounts for the current cart.
+      summary: Calculate order total
+      description: Computes subtotals, promotional discounts, taxes, and grand total.
       servers:
         - url: http://localhost:8081
       parameters:
@@ -143,14 +163,31 @@ paths:
             type: string
       responses:
         '200':
-          description: Totals calculated
+          description: Calculation complete
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order_no:
+                    type: string
+                  trace_id:
+                    type: string
+                  subtotal:
+                    type: number
+                  discount:
+                    type: number
+                  tax:
+                    type: number
+                  total:
+                    type: number
 
   /payments:
     post:
       tags:
         - Payment Service
-      summary: Process Cash Payment
-      description: Processes cash payment for a calculated order.
+      summary: Submit cash payment
+      description: Validates transaction amount against cash received and calculates change.
       servers:
         - url: http://localhost:8083
       requestBody:
@@ -162,26 +199,41 @@ paths:
               properties:
                 order_no:
                   type: string
+                  example: ORD-10025
                 trace_id:
                   type: string
+                  example: TRC-82931
                 amount:
                   type: number
-                  format: float
+                  example: 500.00
                 cash_received:
                   type: number
-                  format: float
+                  example: 1000.00
       responses:
         '200':
           description: Payment successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order_no:
+                    type: string
+                  trace_id:
+                    type: string
+                  change:
+                    type: number
+                  status:
+                    type: string
         '400':
-          description: Insufficient cash received
+          description: Insufficient cash or invalid request
 
   /finalize:
     post:
       tags:
         - Finalize Service
-      summary: Finalize Order
-      description: Closes the order and deducts items from inventory stock.
+      summary: Finalize transaction
+      description: Verifies payment, checks stock availability, updates inventory, and marks order as COMPLETED.
       servers:
         - url: http://localhost:8084
       requestBody:
@@ -193,13 +245,15 @@ paths:
               properties:
                 order_no:
                   type: string
+                  example: ORD-10025
                 trace_id:
                   type: string
+                  example: TRC-82931
       responses:
         '200':
           description: Order finalized successfully
         '400':
-          description: Order not paid
+          description: Order not paid or insufficient stock
 
   /orders/{orderNo}/receipt:
     get:
@@ -228,14 +282,14 @@ paths:
                   receipt_text:
                     type: string
 
-  /telemetry/logs:
+  /ingest:
     post:
       tags:
         - Telemetry Service
       summary: Ingest Telemetry Logs
-      description: Internal endpoint that receives JSON structured logs from all microservices.
+      description: Central ingestion endpoint receiving structured POSLog JSON events from microservices.
       servers:
-        - url: http://localhost:8082
+        - url: http://localhost:8085
       requestBody:
         required: true
         content:
@@ -244,7 +298,37 @@ paths:
               $ref: '#/components/schemas/POSLog'
       responses:
         '202':
-          description: Log ingested
+          description: Log ingested and persisted
+
+  /logs:
+    get:
+      tags:
+        - Telemetry Service
+      summary: Fetch Telemetry Logs
+      description: Retrieves the last 5,000 ingested logs from memory/disk buffer.
+      servers:
+        - url: http://localhost:8085
+      responses:
+        '200':
+          description: Array of telemetry logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/POSLog'
+
+  /stream:
+    get:
+      tags:
+        - Telemetry Service
+      summary: Real-Time Telemetry SSE Stream
+      description: Server-Sent Events (SSE) endpoint emitting live JSON log stream to AI backend / monitoring UI.
+      servers:
+        - url: http://localhost:8085
+      responses:
+        '200':
+          description: Event stream (text/event-stream)
 
 components:
   schemas:
@@ -298,15 +382,30 @@ components:
         timestamp:
           type: string
           format: date-time
-        level:
-          type: string
-        service:
-          type: string
-        message:
-          type: string
+          example: "2026-09-22T15:30:00Z"
         trace_id:
           type: string
+          example: "TRC-82931"
         order_no:
           type: string
+          example: "ORD-10025"
+        service:
+          type: string
+          example: "payment-service"
+        operation:
+          type: string
+          example: "payment"
+        level:
+          type: string
+          example: "ERROR"
+        http_status:
+          type: integer
+          example: 503
+        error_code:
+          type: string
+          example: "ERR_PAYMENT_FAILED"
+        message:
+          type: string
+          example: "Payment gateway connection refused"
         metadata:
           type: object

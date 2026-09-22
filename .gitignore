@@ -39,4 +39,6 @@ Thumbs.db
 
 # Docker and Logs
 *.log
+*.jsonl
+logs/
 pgdata/

@@ -3,14 +3,16 @@ package models
 import "time"
 
 type POSLog struct {
-	Timestamp time.Time              `json:"timestamp"`
-	TraceID   string                 `json:"trace_id"`
-	OrderNo   string                 `json:"order_no"`
-	Service   string                 `json:"service"`
-	Level     string                 `json:"level"`
-	ErrorCode string                 `json:"error_code,omitempty"`
-	Message   string                 `json:"message"`
-	Metadata  map[string]interface{} `json:"metadata,omitempty"`
+	Timestamp  time.Time              `json:"timestamp"`
+	TraceID    string                 `json:"trace_id"`
+	OrderNo    string                 `json:"order_no"`
+	Service    string                 `json:"service"`
+	Operation  string                 `json:"operation,omitempty"`
+	Level      string                 `json:"level"`
+	HTTPStatus int                    `json:"http_status,omitempty"`
+	ErrorCode  string                 `json:"error_code,omitempty"`
+	Message    string                 `json:"message"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
 }
 
 type Item struct {

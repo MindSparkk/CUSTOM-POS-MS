@@ -11,11 +11,16 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <!-- Babel for JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Custom Scrollbar & Height Rules -->
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
 </head>
-<body class="bg-gray-100">
-    <div id="root"></div>
+<body class="bg-gray-100 h-screen w-screen overflow-hidden font-sans">
+    <div id="root" class="h-full w-full"></div>
 
     <script type="text/babel">
         const { useState, useEffect } = React;
@@ -44,14 +49,9 @@
             const [skuInput, setSkuInput] = useState('');
             const [cashInput, setCashInput] = useState('');
             
-            const [status, setStatus] = useState('IDLE'); // IDLE, OPEN, PAID, COMPLETED
+            const [status, setStatus] = useState('IDLE'); // IDLE, OPEN, CHECKOUT, PAID, COMPLETED
             const [receipt, setReceipt] = useState('');
             const [errorMsg, setErrorMsg] = useState('');
-
-            // Initialize icons after render
-            useEffect(() => {
-                // lucide.createIcons();
-            });
 
             const createOrder = async () => {
                 try {
@@ -67,7 +67,7 @@
                     setCashInput('');
                     return data.order_no;
                 } catch (e) {
-                    setErrorMsg('Failed to connect to Order Service. Is Docker running?');
+                    setErrorMsg('Failed to connect to Order Service (Port 8081). Is the service running?');
                     return null;
                 }
             };
@@ -78,10 +78,10 @@
                     const data = await res.json();
                     setItems(data.items || []);
                     setTotals({
-                        subtotal: data.subtotal,
-                        discount: data.discount,
-                        tax: data.tax,
-                        total: data.total
+                        subtotal: data.subtotal || 0,
+                        discount: data.discount || 0,
+                        tax: data.tax || 0,
+                        total: data.total || 0
                     });
                 } catch (e) {
                     console.error(e);
@@ -90,7 +90,7 @@
 
             const addItem = async (sku) => {
                 let currentOrderNo = orderNo;
-                if (!currentOrderNo) {
+                if (!currentOrderNo || status === 'COMPLETED' || status === 'IDLE') {
                     currentOrderNo = await createOrder();
                     if (!currentOrderNo) return;
                 }
@@ -103,17 +103,18 @@
                         body: JSON.stringify({ sku, quantity: 1 })
                     });
                     
-                    const data = await res.json();
                     if (!res.ok) {
-                        setErrorMsg(data.message || 'Error adding item');
+                        const err = await res.json();
+                        setErrorMsg(err.message || 'Failed to add item');
                         return;
                     }
-                    
+
+                    // Auto calculate total after adding item
                     await fetch(`${ORDER_API}/orders/${currentOrderNo}/calculate`, { method: 'POST' });
                     await fetchOrderDetails(currentOrderNo);
                     setSkuInput('');
                 } catch (e) {
-                    setErrorMsg('Failed to add item');
+                    setErrorMsg('Order Service error');
                 }
             };
 
@@ -122,11 +123,10 @@
                     setErrorMsg('');
                     const res = await fetch(`${ORDER_API}/orders/${orderNo}/items/${sku}`, { method: 'DELETE' });
                     if (!res.ok) {
-                        const data = await res.json();
-                        setErrorMsg(data.message || 'Error voiding item');
+                        const err = await res.json();
+                        setErrorMsg(err.message || 'Failed to void item');
                         return;
                     }
-                    await fetch(`${ORDER_API}/orders/${orderNo}/calculate`, { method: 'POST' });
                     await fetchOrderDetails(orderNo);
                 } catch (e) {
                     setErrorMsg('Failed to void item');
@@ -134,13 +134,15 @@
             };
 
             const payCash = async () => {
-                if (!cashInput || isNaN(cashInput)) {
-                    setErrorMsg('Please enter a valid cash amount');
-                    return;
-                }
-                
                 try {
                     setErrorMsg('');
+                    const cashVal = parseFloat((parseInt(cashInput || '0', 10) / 100).toFixed(2));
+                    
+                    if (cashVal < totals.total) {
+                        setErrorMsg(`Insufficient cash! Total is $${totals.total.toFixed(2)}, but received $${cashVal.toFixed(2)}`);
+                        return;
+                    }
+
                     const res = await fetch(`${PAYMENT_API}/payments`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -148,19 +150,19 @@
                             order_no: orderNo,
                             trace_id: traceId,
                             amount: totals.total,
-                            cash_received: parseInt(cashInput || '0', 10) / 100
+                            cash_received: cashVal
                         })
                     });
+
                     const data = await res.json();
-                    
                     if (!res.ok) {
                         setErrorMsg(data.message || 'Payment failed');
                         return;
                     }
-                    
+
                     setStatus('PAID');
                 } catch (e) {
-                    setErrorMsg('Payment request failed');
+                    setErrorMsg('Payment Service error (Port 8083)');
                 }
             };
 
@@ -170,71 +172,76 @@
                     const res = await fetch(`${FINALIZE_API}/finalize`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ order_no: orderNo, trace_id: traceId })
+                        body: JSON.stringify({
+                            order_no: orderNo,
+                            trace_id: traceId
+                        })
                     });
-                    
+
                     if (!res.ok) {
-                        const data = await res.json();
-                        setErrorMsg(data.message || 'Finalize failed');
+                        const err = await res.json();
+                        setErrorMsg(err.message || 'Finalize failed');
                         return;
                     }
-                    
+
+                    // Fetch receipt
+                    const receiptRes = await fetch(`${FINALIZE_API}/orders/${orderNo}/receipt`);
+                    const receiptData = await receiptRes.json();
+                    setReceipt(receiptData.receipt_text || 'Order Completed');
                     setStatus('COMPLETED');
-                    
-                    const recRes = await fetch(`${FINALIZE_API}/orders/${orderNo}/receipt`);
-                    const recData = await recRes.json();
-                    setReceipt(recData.receipt_text);
-                    
                 } catch (e) {
-                    setErrorMsg('Finalize request failed');
+                    setErrorMsg('Finalize Service error (Port 8084)');
                 }
             };
 
             return (
-                <div className="min-h-screen p-4 md:p-8 font-sans">
-                    <div className="max-w-6xl mx-auto bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row h-[85vh]">
+                <div className="h-screen w-screen flex flex-col bg-gray-100 p-2 sm:p-4 overflow-hidden">
+                    <div className="h-full w-full max-w-7xl mx-auto bg-white rounded-2xl shadow-xl flex flex-col md:flex-row overflow-hidden border border-gray-200">
                         
-                        {/* LEFT PANEL: Cart & Checkout */}
-                        <div className="w-full md:w-1/3 border-r border-gray-200 flex flex-col bg-gray-50">
-                            <div className="p-5 bg-gradient-to-r from-gray-900 to-gray-800 text-white flex justify-between items-center shadow-md">
-                                <h1 className="text-xl font-bold flex items-center gap-3">
+                        {/* LEFT PANEL: Cart & Actions (Always visible buttons on small screens) */}
+                        <div className="w-full md:w-5/12 lg:w-4/12 border-b md:border-b-0 md:border-r border-gray-200 flex flex-col h-full bg-white shrink-0">
+                            
+                            {/* Header */}
+                            <div className="p-3 sm:p-4 bg-gray-900 text-white flex justify-between items-center shrink-0">
+                                <h1 className="text-base sm:text-lg font-bold flex items-center gap-2">
                                     🛒 Retail POS
                                 </h1>
-                                <div className="flex items-center gap-3">
-                                    {status !== 'IDLE' && <span className="text-xs font-mono bg-gray-700/50 px-2 py-1 rounded-md border border-gray-600">{orderNo}</span>}
-                                    <button onClick={() => window.open('monitor-ui.html', '_blank', 'width=1200,height=800')} className="text-xs bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-md font-bold transition flex items-center gap-1 shadow">
+                                <div className="flex items-center gap-2">
+                                    {status !== 'IDLE' && <span className="text-[11px] font-mono bg-gray-800 px-2 py-0.5 rounded border border-gray-700">{orderNo}</span>}
+                                    <button onClick={() => window.open('monitor-ui.html', '_blank', 'width=1200,height=800')} className="text-xs bg-blue-600 hover:bg-blue-500 px-2.5 py-1 rounded font-bold transition flex items-center gap-1 shadow">
                                         📊 Monitor
                                     </button>
                                 </div>
                             </div>
 
+                            {/* Error Alert */}
                             {errorMsg && (
-                                <div className="bg-red-50 text-red-700 p-4 text-sm border-b border-red-200 font-medium flex items-center gap-2">
-                                    ⚠️
-                                    {errorMsg}
+                                <div className="bg-red-50 text-red-700 p-2.5 text-xs sm:text-sm border-b border-red-200 font-medium flex items-center gap-2 shrink-0">
+                                    ⚠️ {errorMsg}
                                 </div>
                             )}
 
-                            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                            {/* Scrollable Items List */}
+                            <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0 bg-gray-50/50">
                                 {items.length === 0 ? (
-                                    <div className="h-full flex flex-col items-center justify-center text-gray-400">
-                                        <div className="text-6xl mb-3 opacity-30">📦</div>
-                                        <p className="font-medium text-gray-500">Cart is empty</p>
+                                    <div className="h-full flex flex-col items-center justify-center text-gray-400 p-4">
+                                        <div className="text-4xl sm:text-5xl mb-2 opacity-30">📦</div>
+                                        <p className="font-medium text-xs sm:text-sm text-gray-500">Cart is empty</p>
                                     </div>
                                 ) : (
                                     items.map((item, idx) => (
-                                        <div key={idx} className="bg-white p-3 rounded-lg shadow-sm border border-gray-100 flex justify-between items-center group transition-all hover:shadow-md">
-                                            <div>
-                                                <h4 className="font-bold text-gray-800">{item.name}</h4>
-                                                <div className="flex items-center gap-2 mt-1">
-                                                    <span className="text-xs font-mono text-gray-500 bg-gray-100 px-2 py-0.5 rounded">SKU: {item.sku}</span>
-                                                    <span className="text-xs text-gray-500">Qty: {item.quantity}</span>
+                                        <div key={idx} className="bg-white p-2.5 sm:p-3 rounded-lg shadow-sm border border-gray-200 flex justify-between items-center transition-all hover:shadow">
+                                            <div className="min-w-0 flex-1 pr-2">
+                                                <h4 className="font-bold text-gray-800 text-xs sm:text-sm truncate">{item.name}</h4>
+                                                <div className="flex items-center gap-2 mt-0.5">
+                                                    <span className="text-[10px] font-mono text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">SKU: {item.sku}</span>
+                                                    <span className="text-[10px] text-gray-500">Qty: {item.quantity}</span>
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-3">
-                                                <span className="font-bold text-gray-900 text-lg">${item.total.toFixed(2)}</span>
+                                            <div className="flex items-center gap-2 shrink-0">
+                                                <span className="font-bold text-gray-900 text-sm sm:text-base">${item.total.toFixed(2)}</span>
                                                 {status === 'OPEN' && (
-                                                    <button onClick={() => voidItem(item.sku)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded transition" title="Void Item">
+                                                    <button onClick={() => voidItem(item.sku)} className="text-red-500 hover:bg-red-50 p-1 rounded transition text-xs" title="Void Item">
                                                         🗑️
                                                     </button>
                                                 )}
@@ -244,88 +251,92 @@
                                 )}
                             </div>
 
-                            <div className="p-5 bg-white border-t border-gray-200 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
-                                <div className="space-y-2 text-sm text-gray-600 mb-5">
+                            {/* Fixed Bottom Checkout Footer (Never hidden!) */}
+                            <div className="p-3 sm:p-4 bg-white border-t border-gray-200 shadow-lg shrink-0">
+                                <div className="space-y-1 text-xs sm:text-sm text-gray-600 mb-3">
                                     <div className="flex justify-between font-medium"><span>Subtotal:</span> <span>${totals.subtotal.toFixed(2)}</span></div>
                                     <div className="flex justify-between text-green-600 font-medium"><span>Discount:</span> <span>-${totals.discount.toFixed(2)}</span></div>
                                     <div className="flex justify-between font-medium"><span>Tax:</span> <span>${totals.tax.toFixed(2)}</span></div>
-                                    <div className="flex justify-between text-2xl font-black text-gray-900 mt-3 pt-3 border-t border-gray-200">
+                                    <div className="flex justify-between text-lg sm:text-xl font-black text-gray-900 pt-2 border-t border-gray-200">
                                         <span>Total:</span> <span>${totals.total.toFixed(2)}</span>
                                     </div>
                                 </div>
 
                                 {status === 'IDLE' || status === 'COMPLETED' ? (
-                                    <button onClick={createOrder} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition shadow-lg shadow-blue-200">
+                                    <button onClick={createOrder} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition shadow text-sm sm:text-base">
                                         Start New Order ▶️
                                     </button>
                                 ) : status === 'OPEN' ? (
                                     <button 
                                         onClick={() => setStatus('CHECKOUT')} 
                                         disabled={items.length === 0}
-                                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-500 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition shadow-lg shadow-blue-200"
+                                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition shadow text-sm sm:text-base"
                                     >
                                         Proceed to Checkout ▶️
                                     </button>
                                 ) : status === 'CHECKOUT' ? (
-                                    <div className="flex flex-col gap-3">
+                                    <div className="flex flex-col gap-2">
                                         <div className="flex gap-2">
                                             <div className="relative flex-1">
-                                                <span className="absolute left-3 top-4 text-gray-500 font-bold">$</span>
+                                                <span className="absolute left-3 top-2.5 text-gray-500 font-bold">$</span>
                                                 <input 
                                                     type="text" 
                                                     placeholder="0.00" 
-                                                    className="w-full pl-8 pr-3 py-4 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-lg"
+                                                    className="w-full pl-7 pr-2 py-2 bg-gray-50 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm sm:text-base"
                                                     value={cashInput ? (parseInt(cashInput || '0', 10) / 100).toFixed(2) : ''}
                                                     onChange={e => setCashInput(e.target.value.replace(/\D/g, ''))}
                                                 />
                                             </div>
                                             <button 
                                                 onClick={payCash}
-                                                className="bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-8 rounded-xl transition shadow-lg shadow-green-200"
+                                                className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-xl transition shadow text-sm"
                                             >
-                                                Pay
+                                                Pay Cash
                                             </button>
                                         </div>
-                                        <button onClick={() => setStatus('OPEN')} className="text-sm text-gray-500 font-medium hover:text-gray-700">
+                                        <button onClick={() => setStatus('OPEN')} className="text-xs text-gray-500 font-medium hover:text-gray-700">
                                             ← Back to Cart
                                         </button>
                                     </div>
                                 ) : status === 'PAID' ? (
-                                    <button onClick={finalizeOrder} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 transition shadow-lg shadow-purple-200">
+                                    <button onClick={finalizeOrder} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition shadow text-sm sm:text-base">
                                         🧾 Print Receipt & Finalize
                                     </button>
                                 ) : null}
                             </div>
                         </div>
 
-                        {/* RIGHT PANEL: Search & Quick Items */}
-                        <div className="w-full md:w-2/3 bg-gray-50/50 p-6 flex flex-col relative">
+                        {/* RIGHT PANEL: Manual SKU & Quick Items */}
+                        <div className="w-full md:w-7/12 lg:w-8/12 bg-gray-50/50 p-3 sm:p-5 flex flex-col overflow-y-auto relative min-h-0">
+                            
+                            {/* Receipt Overlay */}
                             {status === 'COMPLETED' && receipt ? (
-                                <div className="absolute inset-0 bg-gray-100 flex flex-col items-center justify-center p-8 z-10">
-                                    <div className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md transform scale-100 transition-transform">
-                                        <div className="flex justify-between items-center mb-6">
-                                            <h2 className="text-xl font-bold text-gray-800">Transaction Complete</h2>
-                                            ✅
+                                <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm flex flex-col items-center justify-center p-4 z-20 overflow-y-auto">
+                                    <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-2xl w-full max-w-md my-auto">
+                                        <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
+                                            <h2 className="text-base sm:text-lg font-bold text-gray-800">Transaction Completed</h2>
+                                            <span className="text-green-500 text-xl">✅</span>
                                         </div>
-                                        <pre className="font-mono text-xs md:text-sm text-gray-700 bg-gray-50 p-6 rounded-lg border border-gray-100 whitespace-pre-wrap mb-6">
+                                        <pre className="font-mono text-xs text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-200 whitespace-pre-wrap max-h-60 overflow-y-auto mb-4">
                                             {receipt}
                                         </pre>
-                                        <button onClick={createOrder} className="w-full bg-gray-900 hover:bg-gray-800 text-white font-bold py-3 rounded-lg transition">
+                                        <button onClick={createOrder} className="w-full bg-gray-900 hover:bg-gray-800 text-white font-bold py-3 rounded-xl transition shadow text-sm">
                                             Start New Order
                                         </button>
                                     </div>
                                 </div>
                             ) : null}
                             
-                            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 mb-6">
-                                <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
+                            {/* SKU Form */}
+                            <div className="bg-white p-3 sm:p-4 rounded-xl shadow-sm border border-gray-200 mb-4 shrink-0">
+                                <h3 className="font-bold text-gray-800 text-xs sm:text-sm mb-2 flex items-center gap-2">
                                     🔍 Manual SKU Entry
                                 </h3>
-                                <form onSubmit={e => { e.preventDefault(); addItem(skuInput); }} className="flex gap-3">
+                                <form onSubmit={e => { e.preventDefault(); addItem(skuInput); }} className="flex gap-2">
                                     <input 
                                         type="text" 
                                         placeholder="Scan or type SKU (e.g. 100001)" 
-                                        className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-lg transition-all"
+                                        className="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-xs sm:text-sm"
                                         value={skuInput}
                                         onChange={e => setSkuInput(e.target.value)}
                                         disabled={status !== 'OPEN' && status !== 'IDLE'}
@@ -333,28 +344,29 @@
                                     <button 
                                         type="submit" 
                                         disabled={(status !== 'OPEN' && status !== 'IDLE') || !skuInput}
-                                        className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold py-3 px-8 rounded-xl transition"
+                                        className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold py-2 px-4 rounded-lg transition text-xs sm:text-sm shrink-0"
                                     >
                                         Add Item
                                     </button>
                                 </form>
                             </div>
 
-                            <div className="flex-1">
-                                <h3 className="font-bold text-gray-800 mb-4 text-lg">Most Purchased Items</h3>
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            {/* Quick Items Grid */}
+                            <div className="flex-1 overflow-y-auto min-h-0">
+                                <h3 className="font-bold text-gray-800 mb-3 text-xs sm:text-sm">Quick Selection (Most Purchased)</h3>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-3">
                                     {TOP_ITEMS.map(item => (
                                         <button 
                                             key={item.sku}
                                             onClick={() => addItem(item.sku)}
                                             disabled={status !== 'OPEN' && status !== 'IDLE'}
-                                            className="bg-white hover:bg-blue-50 hover:border-blue-200 disabled:hover:bg-white disabled:opacity-50 p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center justify-center text-center transition-all group active:scale-95"
+                                            className="bg-white hover:bg-blue-50 hover:border-blue-300 disabled:opacity-50 p-3 sm:p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col items-center text-center transition group active:scale-95"
                                         >
-                                            <div className="w-12 h-12 bg-gray-50 rounded-full flex items-center justify-center mb-3 group-hover:bg-blue-100 transition-colors">
+                                            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gray-50 rounded-full flex items-center justify-center mb-2 group-hover:bg-blue-100 transition-colors text-sm">
                                                 🏷️
                                             </div>
-                                            <span className="font-bold text-gray-800 text-sm mb-1 line-clamp-2">{item.name}</span>
-                                            <span className="text-blue-600 font-black">${item.price.toFixed(2)}</span>
+                                            <span className="font-bold text-gray-800 text-xs mb-1 line-clamp-1">{item.name}</span>
+                                            <span className="text-blue-600 font-black text-xs sm:text-sm">${item.price.toFixed(2)}</span>
                                         </button>
                                     ))}
                                 </div>
@@ -371,5 +383,3 @@
     </script>
 </body>
 </html>
-
-

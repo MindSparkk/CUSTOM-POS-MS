@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -22,11 +24,73 @@ var (
 	logsMutex  sync.RWMutex
 	clients    = make(map[chan models.POSLog]bool)
 	clientsMu  sync.Mutex
+	logFilePath string
 )
+
+func getLogFilePath() string {
+	logDir := os.Getenv("LOG_DIR")
+	if logDir == "" {
+		if _, err := os.Stat("/app"); err == nil {
+			logDir = "/app/logs"
+		} else {
+			logDir = "./logs"
+		}
+	}
+	os.MkdirAll(logDir, 0755)
+	return filepath.Join(logDir, "pos_telemetry.jsonl")
+}
+
+func loadPersistedLogs() {
+	file, err := os.Open(logFilePath)
+	if err != nil {
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	var loaded []models.POSLog
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var posLog models.POSLog
+		if err := json.Unmarshal(line, &posLog); err == nil {
+			loaded = append(loaded, posLog)
+		}
+	}
+
+	if len(loaded) > 5000 {
+		loaded = loaded[len(loaded)-5000:]
+	}
+
+	logsMutex.Lock()
+	logsBuffer = loaded
+	logsMutex.Unlock()
+	slog.Info("Loaded persisted telemetry logs from file", "count", len(loaded), "path", logFilePath)
+}
+
+func appendLogToFile(posLog models.POSLog) {
+	file, err := os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		slog.Error("Failed to open log file for appending", "error", err.Error())
+		return
+	}
+	defer file.Close()
+
+	data, err := json.Marshal(posLog)
+	if err != nil {
+		return
+	}
+	file.Write(append(data, '\n'))
+}
 
 func main() {
 	logger.InitLogger("telemetry-service")
 	slog.Info("Starting telemetry service on port 8085")
+
+	logFilePath = getLogFilePath()
+	loadPersistedLogs()
 
 	r := mux.NewRouter()
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -45,12 +109,9 @@ func main() {
 	srv := &http.Server{
 		Handler:      c.Handler(r),
 		Addr:         ":8085",
-		WriteTimeout: 15 * time.Second,
+		WriteTimeout: 0, // Disable WriteTimeout for SSE stream
 		ReadTimeout:  15 * time.Second,
 	}
-	// For SSE to work properly without timeouts, we might need to bypass WriteTimeout for /stream,
-	// but standard http.Server limits apply to all. We'll rely on the browser reconnecting or we can remove WriteTimeout.
-	srv.WriteTimeout = 0 // Disable WriteTimeout for SSE stream
 
 	slog.Error("Server stopped", "error", srv.ListenAndServe())
 }
@@ -62,7 +123,10 @@ func ingestHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Store log in memory (keep last 5000 for simulation purposes)
+	// Persist log entry to file
+	go appendLogToFile(posLog)
+
+	// Store log in memory (keep last 5000 for simulation/API response)
 	logsMutex.Lock()
 	logsBuffer = append(logsBuffer, posLog)
 	if len(logsBuffer) > 5000 {
@@ -73,7 +137,6 @@ func ingestHandler(w http.ResponseWriter, r *http.Request) {
 	// Broadcast to SSE clients
 	clientsMu.Lock()
 	for clientChan := range clients {
-		// Non-blocking send
 		select {
 		case clientChan <- posLog:
 		default:
