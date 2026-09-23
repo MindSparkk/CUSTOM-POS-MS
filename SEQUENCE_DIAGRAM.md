@@ -1,6 +1,6 @@
 # Retail POS System & AI Ops Sequence Diagrams
 
-This document contains updated Mermaid sequence diagrams for both **Multi-Lane Retail POS Checkout Flow** and the **AI Telemetry Monitoring, Readiness Verification & Self-Healing Architecture**.
+This document contains Mermaid sequence diagrams for both **Multi-Lane Retail POS Checkout Flow** and the **AI Telemetry Monitoring, Error Classification & Readiness Probe Self-Healing Architecture**.
 
 ---
 
@@ -99,23 +99,30 @@ sequenceDiagram
     Note over TelemetrySvc, AIMonitor: 3. Real-Time Telemetry SSE Stream to AI
     TelemetrySvc-->>AIMonitor: SSE Stream (GET /stream)
 
-    Note over AIMonitor, VectorDB: 4. AI Anomaly Classification & RAG Diagnosis
-    AIMonitor->>AIMonitor: Filter level="ERROR", error_code="ERR_DATABASE_UNAVAILABLE"
-    AIMonitor->>AIMonitor: Check category == "INFRASTRUCTURE" (Skip container restart if category == "BUSINESS")
-    AIMonitor->>VectorDB: Semantic Search Query ("ERR_DATABASE_UNAVAILABLE 500 PostgreSQL down")
-    VectorDB-->>AIMonitor: Return SOP Document ("SOP-101: Restart PostgreSQL DB Container")
+    Note over AIMonitor, VectorDB: 4. AI Anomaly Classification & RAG Decision Logic
+    AIMonitor->>AIMonitor: Filter level="ERROR", extract trace_id & category
 
-    Note over AIMonitor, DockerEngine: 5. Automated Remediation Execution
-    AIMonitor->>OpsAgent: Trigger Incident Resolution (SOP-101, Target: postgres)
-    OpsAgent->>DockerEngine: Execute docker restart pos-go-ms-postgres-1
-    DockerEngine-->>OpsAgent: Container Restarted (Exit Code 0)
+    alt INFRASTRUCTURE Category Error (e.g. DATABASE_UNAVAILABLE, PAYMENT_TIMEOUT)
+        AIMonitor->>VectorDB: Semantic Search Query ("ERR_DATABASE_UNAVAILABLE 500 PostgreSQL down")
+        VectorDB-->>AIMonitor: Return SOP Document ("SOP-101: Restart PostgreSQL DB Container")
+        
+        Note over AIMonitor, DockerEngine: 5. Automated Infrastructure Remediation
+        AIMonitor->>OpsAgent: Trigger Incident Resolution (SOP-101, Target: postgres)
+        OpsAgent->>DockerEngine: Execute docker restart pos-go-ms-postgres-1
+        DockerEngine-->>OpsAgent: Container Restarted (Exit Code 0)
 
-    Note over OpsAgent, Microservice: 6. Dependency Readiness Probe Verification
-    loop Poll Readiness Probe until READY
-        OpsAgent->>Microservice: GET /ready (http://localhost:8081/ready)
-        Microservice-->>OpsAgent: 200 OK {"status": "READY", "dependencies": {"postgresql": "UP"}}
+        Note over OpsAgent, Microservice: 6. Dependency Readiness Verification
+        loop Poll Readiness Probe until READY
+            OpsAgent->>Microservice: GET /ready (http://localhost:8081/ready)
+            Microservice-->>OpsAgent: 200 OK {"status": "READY", "dependencies": {"postgresql": "UP"}}
+        end
+
+        OpsAgent->>TelemetrySvc: POST /ingest (POSLog: Incident Resolved, TRC-82931)
+        OpsAgent-->>AIMonitor: Dependency Readiness Confirmed & Incident Closed
+
+    else BUSINESS Category Error (e.g. ERR_INSUFFICIENT_CASH, ITEM_LIMIT_EXCEEDED)
+        AIMonitor->>AIMonitor: Log Operational Alert on Dashboard Screen
+        Note over AIMonitor, OpsAgent: DO NOT TRIGGER CONTAINER RESTARTS
+        AIMonitor-->>QA: Display Cashier Action Required ("Insufficient cash tendered on LANE-02")
     end
-
-    OpsAgent->>TelemetrySvc: POST /ingest (POSLog: Incident Resolved, TRC-82931)
-    OpsAgent-->>AIMonitor: Dependency Readiness Confirmed & Incident Closed
 ```
