@@ -35,8 +35,9 @@ func (h *TelemetryHandler) Enabled(ctx context.Context, level slog.Level) bool {
 
 func (h *TelemetryHandler) Handle(ctx context.Context, r slog.Record) error {
 	// Parse attributes
-	var traceID, orderNo, errorCode, operation string
+	var traceID, orderNo, errorCode, operation, eventType, category, dependency, dependencyStatus, storeID, laneID, laneType, cashierID, incidentID, environment string
 	var httpStatus int
+	var durationMS int64
 	metadata := make(map[string]interface{})
 
 	r.Attrs(func(a slog.Attr) bool {
@@ -49,6 +50,34 @@ func (h *TelemetryHandler) Handle(ctx context.Context, r slog.Record) error {
 			errorCode = a.Value.String()
 		case "operation":
 			operation = a.Value.String()
+		case "event_type":
+			eventType = a.Value.String()
+		case "category":
+			category = a.Value.String()
+		case "dependency":
+			dependency = a.Value.String()
+		case "dependency_status":
+			dependencyStatus = a.Value.String()
+		case "store_id":
+			storeID = a.Value.String()
+		case "lane_id":
+			laneID = a.Value.String()
+		case "lane_type":
+			laneType = a.Value.String()
+		case "cashier_id":
+			cashierID = a.Value.String()
+		case "incident_id":
+			incidentID = a.Value.String()
+		case "environment":
+			environment = a.Value.String()
+		case "duration_ms":
+			if val, ok := a.Value.Any().(int64); ok {
+				durationMS = val
+			} else if valInt, ok := a.Value.Any().(int); ok {
+				durationMS = int64(valInt)
+			} else {
+				durationMS = a.Value.Int64()
+			}
 		case "http_status":
 			if val, ok := a.Value.Any().(int); ok {
 				httpStatus = val
@@ -63,17 +92,41 @@ func (h *TelemetryHandler) Handle(ctx context.Context, r slog.Record) error {
 		return true
 	})
 
+	if storeID == "" {
+		storeID = os.Getenv("STORE_ID")
+		if storeID == "" {
+			storeID = "STORE-104"
+		}
+	}
+	if environment == "" {
+		environment = os.Getenv("ENV")
+		if environment == "" {
+			environment = "dev"
+		}
+	}
+
 	logEntry := models.POSLog{
-		Timestamp:  r.Time,
-		TraceID:    traceID,
-		OrderNo:    orderNo,
-		Service:    h.serviceName,
-		Operation:  operation,
-		Level:      r.Level.String(),
-		HTTPStatus: httpStatus,
-		ErrorCode:  errorCode,
-		Message:    r.Message,
-		Metadata:   metadata,
+		Timestamp:        r.Time,
+		IncidentID:       incidentID,
+		TraceID:          traceID,
+		OrderNo:          orderNo,
+		Service:          h.serviceName,
+		Operation:        operation,
+		Level:            r.Level.String(),
+		EventType:        eventType,
+		Category:         category,
+		HTTPStatus:       httpStatus,
+		ErrorCode:        errorCode,
+		Message:          r.Message,
+		Dependency:       dependency,
+		DependencyStatus: dependencyStatus,
+		DurationMS:       durationMS,
+		StoreID:          storeID,
+		LaneID:           laneID,
+		LaneType:         laneType,
+		CashierID:        cashierID,
+		Environment:      environment,
+		Metadata:         metadata,
 	}
 
 	// Also print locally as JSON

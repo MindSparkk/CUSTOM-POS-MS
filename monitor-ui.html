@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>POS System Monitor</title>
+    <title>AI Ops Store Telemetry & Multi-Lane Monitor</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -17,26 +18,72 @@
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
     </style>
 </head>
-<body class="bg-gray-100 text-gray-800 h-screen w-screen overflow-hidden font-sans flex flex-col">
+<body class="bg-slate-900 text-slate-100 h-screen w-screen overflow-hidden font-sans flex flex-col">
     <div id="root" class="h-full w-full"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
         const TELEMETRY_API = 'http://localhost:8085';
+        const SERVICE_PORTS = {
+            'order-service': 8081,
+            'payment-service': 8083,
+            'finalize-service': 8084
+        };
         const SERVICES = ['order-service', 'payment-service', 'finalize-service'];
-        const SERVICE_TITLES = {
-            'order-service': 'Order Service Logs',
-            'payment-service': 'Payment Service Logs',
-            'finalize-service': 'Finalize Service Logs'
-        };
-        const SERVICE_COLORS = {
-            'order-service': 'border-blue-200 bg-blue-50/50 text-blue-900',
-            'payment-service': 'border-green-200 bg-green-50/50 text-green-900',
-            'finalize-service': 'border-purple-200 bg-purple-50/50 text-purple-900',
-        };
 
-        function LogColumn({ title, logs, colorClass }) {
+        function LogItem({ log, globalShowJson }) {
+            const [expanded, setExpanded] = useState(false);
+            const showJson = globalShowJson || expanded;
+
+            return (
+                <div className={`log-enter p-2.5 rounded-lg border shadow-sm transition-all ${log.level === 'ERROR' ? 'bg-red-950/40 border-red-900/60 text-red-200' : 'bg-slate-900 border-slate-800 text-slate-300'}`}>
+                    <div className="flex justify-between items-center text-[10px] text-slate-400 mb-1 pb-1 border-b border-slate-800">
+                        <span>{new Date(log.timestamp).toLocaleTimeString()}</span>
+                        <div className="flex items-center gap-1.5">
+                            {log.lane_id && <span className="px-1.5 py-0.2 bg-blue-950 text-blue-300 border border-blue-800/60 rounded text-[9px] font-mono">{log.lane_id}</span>}
+                            <span className={log.level === 'ERROR' ? 'text-red-400 font-bold bg-red-900/50 px-1.5 py-0.5 rounded font-mono' : 'font-semibold text-slate-400 font-mono'}>
+                                {log.event_type || log.level} {log.http_status ? `(${log.http_status})` : ''}
+                            </span>
+                            <button 
+                                onClick={() => setExpanded(!expanded)} 
+                                className="text-[9px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded font-mono border border-slate-700"
+                            >
+                                {showJson ? 'Collapse' : 'JSON'}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="text-slate-100 font-semibold mb-1 text-xs">{log.message}</div>
+
+                    {/* Summary Metadata */}
+                    {!showJson && (log.trace_id || log.order_no || log.error_code || log.duration_ms) && (
+                        <div className="mt-1.5 pt-1.5 border-t border-slate-800 text-[10px] text-slate-400 bg-slate-950/60 p-1.5 rounded space-y-0.5 font-mono">
+                            {log.cashier_id && <div><span className="font-bold text-slate-500">Cashier:</span> {log.cashier_id}</div>}
+                            {log.error_code && <div className="text-red-400 font-bold"><span className="text-slate-500">Error Code:</span> [{log.category || 'INFRA'}] {log.error_code}</div>}
+                            {log.order_no && <div><span className="font-bold text-slate-500">Order:</span> {log.order_no}</div>}
+                            {log.trace_id && <div><span className="font-bold text-slate-500">Trace:</span> {log.trace_id}</div>}
+                            {log.duration_ms !== undefined && <div><span className="font-bold text-slate-500">Duration:</span> {log.duration_ms}ms</div>}
+                        </div>
+                    )}
+
+                    {/* Full Raw POSLog JSON Content */}
+                    {showJson && (
+                        <div className="mt-2 pt-2 border-t border-slate-800">
+                            <div className="text-[9px] text-emerald-400 font-mono font-bold mb-1 flex justify-between">
+                                <span>📄 RAW POSLOG JSON:</span>
+                                <span>{log.service}</span>
+                            </div>
+                            <pre className="text-[10px] leading-tight bg-slate-950 p-2 rounded border border-slate-800 text-emerald-300 font-mono overflow-x-auto whitespace-pre-wrap select-all">
+                                {JSON.stringify(log, null, 2)}
+                            </pre>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        function LogColumn({ title, logs, globalShowJson }) {
             const endRef = useRef(null);
 
             useEffect(() => {
@@ -44,38 +91,19 @@
             }, [logs]);
 
             return (
-                <div className={`flex flex-col h-full rounded-xl border ${colorClass} shadow-sm overflow-hidden min-h-0 bg-white`}>
-                    <div className="p-2.5 sm:p-3 border-b border-inherit bg-white font-bold flex justify-between items-center shrink-0">
-                        <span className="text-xs sm:text-sm">{title}</span>
-                        <span className="text-[10px] sm:text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full border border-gray-200 font-mono shadow-sm">{logs.length} events</span>
+                <div className="flex flex-col h-full rounded-xl border border-slate-800 bg-slate-950/80 shadow-inner overflow-hidden min-h-0">
+                    <div className="p-2.5 border-b border-slate-800 bg-slate-900/90 font-bold flex justify-between items-center shrink-0">
+                        <span className="text-xs text-slate-200">{title}</span>
+                        <span className="text-[10px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-full font-mono">{logs.length} events</span>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-2 sm:p-3 space-y-2.5 font-mono text-xs min-h-0">
+                    <div className="flex-1 overflow-y-auto p-2.5 space-y-2 font-mono text-xs min-h-0">
                         {logs.length === 0 ? (
-                            <div className="h-full flex items-center justify-center text-gray-400 text-xs italic">
-                                Waiting for telemetry...
+                            <div className="h-full flex items-center justify-center text-slate-600 text-xs italic">
+                                Listening for telemetry events...
                             </div>
                         ) : (
                             logs.map((log, i) => (
-                                <div key={i} className="log-enter p-2.5 rounded-lg bg-white border border-gray-200 shadow-sm break-words">
-                                    <div className="flex justify-between text-[10px] text-gray-500 mb-1 border-b border-gray-100 pb-1">
-                                        <span>{new Date(log.timestamp).toLocaleTimeString()}</span>
-                                        <span className={log.level === 'ERROR' ? 'text-red-600 font-bold bg-red-50 px-1.5 py-0.5 rounded border border-red-200' : 'font-semibold text-gray-600'}>
-                                            {log.level} {log.http_status ? `(${log.http_status})` : ''}
-                                        </span>
-                                    </div>
-                                    <div className="text-gray-900 font-semibold mb-1 text-xs">{log.message}</div>
-                                    
-                                    {(log.trace_id || log.order_no || log.error_code || (log.metadata && Object.keys(log.metadata).length > 0)) && (
-                                        <div className="mt-1.5 pt-1.5 border-t border-gray-100 text-[10px] text-gray-600 bg-gray-50 p-1.5 rounded space-y-0.5">
-                                            {log.error_code && <div className="text-red-600 font-bold"><span className="text-gray-400">Error Code:</span> {log.error_code}</div>}
-                                            {log.order_no && <div><span className="font-bold text-gray-400">Order:</span> {log.order_no}</div>}
-                                            {log.trace_id && <div><span className="font-bold text-gray-400">Trace:</span> {log.trace_id}</div>}
-                                            {log.metadata && Object.entries(log.metadata).map(([k, v]) => (
-                                                <div key={k}><span className="font-bold text-gray-400">{k}:</span> {String(v)}</div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
+                                <LogItem key={i} log={log} globalShowJson={globalShowJson} />
                             ))
                         )}
                         <div ref={endRef} className="h-1 shrink-0"></div>
@@ -87,8 +115,29 @@
         function Monitor() {
             const [logs, setLogs] = useState([]);
             const [connected, setConnected] = useState(false);
+            const [selectedLane, setSelectedLane] = useState('ALL');
+            const [serviceStatus, setServiceStatus] = useState({});
+            const [globalShowJson, setGlobalShowJson] = useState(true);
+
+            // Swagger /ready health check polling
+            const checkReadiness = () => {
+                SERVICES.forEach(svc => {
+                    const port = SERVICE_PORTS[svc];
+                    fetch(`http://localhost:${port}/ready`)
+                        .then(res => res.json())
+                        .then(data => {
+                            setServiceStatus(prev => ({ ...prev, [svc]: data.status }));
+                        })
+                        .catch(() => {
+                            setServiceStatus(prev => ({ ...prev, [svc]: 'DOWN' }));
+                        });
+                });
+            };
 
             useEffect(() => {
+                checkReadiness();
+                const readyInterval = setInterval(checkReadiness, 5000);
+
                 fetch(`${TELEMETRY_API}/logs`)
                     .then(res => res.json())
                     .then(data => { if (data) setLogs(data); })
@@ -107,28 +156,150 @@
                         });
                     } catch (err) {}
                 };
-                return () => sse.close();
+                return () => {
+                    clearInterval(readyInterval);
+                    sse.close();
+                };
             }, []);
 
+            // Dynamic Store ID Discovery from POSLog telemetry
+            const discoveredStores = Array.from(new Set(logs.map(l => l.store_id).filter(Boolean)));
+            const activeStoreId = discoveredStores[0] || 'STORE-104';
+
+            // Dynamic Lane Discovery
+            const defaultLanes = [
+                { id: 'LANE-01', name: 'Lane 1 (Express)', type: 'CASHIER_EXPRESS', icon: '⚡' },
+                { id: 'LANE-02', name: 'Lane 2 (Main Belt)', type: 'CASHIER_BELT', icon: '🛒' },
+                { id: 'LANE-03', name: 'Lane 3 (Self-Checkout 1)', type: 'SELF_CHECKOUT', icon: '🤖' },
+                { id: 'LANE-04', name: 'Lane 4 (Self-Checkout 2)', type: 'SELF_CHECKOUT', icon: '🤖' }
+            ];
+
+            const discoveredLaneIDs = Array.from(new Set(logs.map(l => l.lane_id).filter(Boolean)));
+            const allLanesMap = new Map();
+            defaultLanes.forEach(l => allLanesMap.set(l.id, l));
+            
+            discoveredLaneIDs.forEach(lId => {
+                if (!allLanesMap.has(lId)) {
+                    allLanesMap.set(lId, {
+                        id: lId,
+                        name: `${lId} (Custom Lane)`,
+                        type: 'CUSTOM',
+                        icon: '🛒'
+                    });
+                }
+            });
+
+            const activeLanes = Array.from(allLanesMap.values());
+
+            // Calculate Lane Statuses
+            const getLaneStats = (laneId) => {
+                const laneLogs = logs.filter(l => l.lane_id === laneId);
+                const errors = laneLogs.filter(l => l.level === 'ERROR').length;
+                const lastLog = laneLogs[laneLogs.length - 1];
+                let status = 'IDLE';
+                if (errors > 0 && lastLog && lastLog.level === 'ERROR') {
+                    status = 'ERROR';
+                } else if (laneLogs.length > 0) {
+                    status = 'ACTIVE';
+                }
+                return {
+                    count: laneLogs.length,
+                    errors,
+                    lastOrder: lastLog?.order_no || 'None',
+                    status
+                };
+            };
+
+            const filteredLogs = selectedLane === 'ALL' ? logs : logs.filter(l => l.lane_id === selectedLane);
+
             return (
-                <div className="h-full w-full flex flex-col p-2 sm:p-4 mx-auto max-w-7xl overflow-hidden">
-                    <header className="mb-3 flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border border-gray-200 shrink-0">
-                        <h1 className="text-base sm:text-lg font-bold flex items-center gap-2 text-gray-800">
-                            📊 Telemetry Monitor (Live Real-Time Stream)
-                        </h1>
-                        <div className="flex items-center gap-2 bg-gray-50 px-3 py-1 rounded-lg border border-gray-200 shrink-0">
-                            <div className={`w-2.5 h-2.5 rounded-full ${connected ? 'bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-red-500'}`}></div>
-                            <span className="text-xs font-bold text-gray-600 tracking-wider">{connected ? 'LIVE STREAM' : 'DISCONNECTED'}</span>
+                <div className="h-full w-full flex flex-col p-3 sm:p-4 mx-auto max-w-7xl overflow-hidden space-y-3">
+                    
+                    {/* HEADER */}
+                    <header className="flex justify-between items-center bg-slate-950 p-3 rounded-xl border border-slate-800 shrink-0">
+                        <div className="flex items-center gap-3">
+                            <h1 className="text-base sm:text-lg font-bold text-slate-100 flex items-center gap-2">
+                                📊 AI Ops Store Telemetry & Multi-Lane Monitor
+                            </h1>
+                            <span className="text-xs bg-blue-950 text-blue-400 border border-blue-800/60 px-2.5 py-0.5 rounded font-mono font-bold">{activeStoreId}</span>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                            <button 
+                                onClick={() => setGlobalShowJson(!globalShowJson)}
+                                className={`text-xs px-3 py-1 rounded-lg font-mono font-bold border transition ${
+                                    globalShowJson 
+                                        ? 'bg-emerald-950 text-emerald-300 border-emerald-700 shadow-[0_0_8px_rgba(16,185,129,0.3)]' 
+                                        : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200'
+                                }`}
+                            >
+                                {globalShowJson ? '📄 Raw JSON Mode: ON' : '📄 Raw JSON Mode: OFF'}
+                            </button>
+
+                            <select 
+                                value={selectedLane} 
+                                onChange={e => setSelectedLane(e.target.value)}
+                                className="bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded px-2.5 py-1 font-mono"
+                            >
+                                <option value="ALL">🌐 Filter Logs: All Store Lanes ({activeLanes.length})</option>
+                                {activeLanes.map(l => <option key={l.id} value={l.id}>{l.icon} {l.name}</option>)}
+                            </select>
+
+                            <div className="flex items-center gap-2 bg-slate-900 px-3 py-1 rounded-lg border border-slate-800 shrink-0">
+                                <div className={`w-2.5 h-2.5 rounded-full ${connected ? 'bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-red-500'}`}></div>
+                                <span className="text-xs font-bold text-slate-300 tracking-wider">{connected ? 'LIVE STREAM' : 'DISCONNECTED'}</span>
+                            </div>
                         </div>
                     </header>
-                    
+
+                    {/* LIVE STORE LANE MATRIX */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 shrink-0">
+                        {activeLanes.map(lane => {
+                            const stats = getLaneStats(lane.id);
+                            const isErr = stats.status === 'ERROR';
+                            return (
+                                <div 
+                                    key={lane.id}
+                                    onClick={() => setSelectedLane(selectedLane === lane.id ? 'ALL' : lane.id)}
+                                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                                        selectedLane === lane.id ? 'ring-2 ring-blue-500' : ''
+                                    } ${
+                                        isErr 
+                                            ? 'bg-red-950/30 border-red-800/80 shadow-[0_0_12px_rgba(239,68,68,0.2)]' 
+                                            : stats.status === 'ACTIVE'
+                                                ? 'bg-slate-900 border-slate-800'
+                                                : 'bg-slate-950/60 border-slate-900 text-slate-500'
+                                    }`}
+                                >
+                                    <div className="flex justify-between items-center mb-1">
+                                        <span className="font-bold text-xs text-slate-200 flex items-center gap-1">
+                                            {lane.icon} {lane.name}
+                                        </span>
+                                        <span className={`w-2 h-2 rounded-full ${isErr ? 'bg-red-500 animate-ping' : stats.status === 'ACTIVE' ? 'bg-emerald-400' : 'bg-slate-700'}`}></span>
+                                    </div>
+                                    <div className="flex justify-between items-end text-[11px] font-mono mt-2">
+                                        <div>
+                                            <div className="text-slate-400">Events: <span className="text-slate-200 font-bold">{stats.count}</span></div>
+                                            <div className="text-slate-400">Errors: <span className={stats.errors > 0 ? 'text-red-400 font-bold' : 'text-slate-200'}>{stats.errors}</span></div>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="text-[10px] text-slate-500">Last Order</div>
+                                            <div className="text-blue-400 font-bold">{stats.lastOrder}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    {/* MICROSERVICE LOG COLUMNS */}
                     <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3 min-h-0 overflow-hidden">
                         {SERVICES.map(svc => (
                             <LogColumn 
                                 key={svc} 
-                                title={SERVICE_TITLES[svc]} 
-                                colorClass={SERVICE_COLORS[svc]} 
-                                logs={logs.filter(l => l.service === svc)} 
+                                title={`${svc} telemetry stream (${serviceStatus[svc] || 'CHECKING'})`} 
+                                logs={filteredLogs.filter(l => l.service === svc)} 
+                                globalShowJson={globalShowJson}
                             />
                         ))}
                     </div>

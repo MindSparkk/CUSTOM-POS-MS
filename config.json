@@ -1,0 +1,81 @@
+{
+  "store": {
+    "store_id": "STORE-104",
+    "store_name": "Metro Retail Store #104",
+    "currency": "USD",
+    "default_tax_rate": 8.5,
+    "environment": "dev"
+  },
+  "cashiers": [
+    {
+      "cashier_id": "CASHIER-101",
+      "name": "Sarah Jenkins",
+      "role": "SENIOR_CASHIER",
+      "avatar": "👩‍💼"
+    },
+    {
+      "cashier_id": "CASHIER-102",
+      "name": "Michael Chang",
+      "role": "EXPRESS_CASHIER",
+      "avatar": "👨‍💼"
+    },
+    {
+      "cashier_id": "CASHIER-103",
+      "name": "Alex Rivera",
+      "role": "TRAINEE_CASHIER",
+      "avatar": "🧑‍💼"
+    },
+    {
+      "cashier_id": "CUSTOMER_SELF",
+      "name": "Self-Service Customer",
+      "role": "SELF_SERVICE",
+      "avatar": "🤖"
+    }
+  ],
+  "lanes": [
+    {
+      "lane_id": "LANE-01",
+      "lane_name": "Lane 1 (Express Cashier)",
+      "lane_type": "CASHIER_EXPRESS",
+      "cashier_id": "CASHIER-101",
+      "icon": "⚡",
+      "max_items_limit": 10
+    },
+    {
+      "lane_id": "LANE-02",
+      "lane_name": "Lane 2 (Main Belt Cashier)",
+      "lane_type": "CASHIER_BELT",
+      "cashier_id": "CASHIER-102",
+      "icon": "🛒",
+      "max_items_limit": 100
+    },
+    {
+      "lane_id": "LANE-03",
+      "lane_name": "Lane 3 (Self-Checkout 1)",
+      "lane_type": "SELF_CHECKOUT",
+      "cashier_id": "CUSTOMER_SELF",
+      "icon": "🤖",
+      "max_items_limit": 25
+    },
+    {
+      "lane_id": "LANE-04",
+      "lane_name": "Lane 4 (Self-Checkout 2)",
+      "lane_type": "SELF_CHECKOUT",
+      "cashier_id": "CUSTOMER_SELF",
+      "icon": "🤖",
+      "max_items_limit": 25
+    }
+  ],
+  "telemetry": {
+    "telemetry_service_url": "http://telemetry-service:8085/ingest",
+    "ai_backend_url": "",
+    "log_level": "INFO",
+    "buffer_size": 5000
+  },
+  "policies": {
+    "allow_negative_stock": false,
+    "require_paid_to_finalize": true,
+    "strict_sku_lookup": true,
+    "max_payment_retries": 3
+  }
+}

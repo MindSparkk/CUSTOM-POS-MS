@@ -30,6 +30,7 @@ services:
       - RETAIL_AI_BACKEND_URL=${RETAIL_AI_BACKEND_URL:-}
     volumes:
       - ./logs:/app/logs
+      - ./config.json:/app/config.json
     depends_on:
       - postgres
 
@@ -44,6 +45,8 @@ services:
     environment:
       - DATABASE_URL=postgres://postgres:postgres@postgres:5432/posdb?sslmode=disable
       - RETAIL_AI_BACKEND_URL=http://telemetry-service:8085/ingest
+    volumes:
+      - ./config.json:/app/config.json
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,6 +62,8 @@ services:
     environment:
       - DATABASE_URL=postgres://postgres:postgres@postgres:5432/posdb?sslmode=disable
       - RETAIL_AI_BACKEND_URL=http://telemetry-service:8085/ingest
+    volumes:
+      - ./config.json:/app/config.json
     depends_on:
       postgres:
         condition: service_healthy
@@ -74,6 +79,8 @@ services:
     environment:
       - DATABASE_URL=postgres://postgres:postgres@postgres:5432/posdb?sslmode=disable
       - RETAIL_AI_BACKEND_URL=http://telemetry-service:8085/ingest
+    volumes:
+      - ./config.json:/app/config.json
     depends_on:
       postgres:
         condition: service_healthy

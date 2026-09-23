@@ -14,7 +14,21 @@ const (
 	OrderServiceURL    = "http://localhost:8081"
 	PaymentServiceURL  = "http://localhost:8083"
 	FinalizeServiceURL = "http://localhost:8084"
+	StoreID            = "STORE-104"
 )
+
+type LaneConfig struct {
+	ID      string
+	Type    string
+	Cashier string
+}
+
+var Lanes = []LaneConfig{
+	{ID: "LANE-01", Type: "CASHIER_EXPRESS", Cashier: "CASHIER-101"},
+	{ID: "LANE-02", Type: "CASHIER_BELT", Cashier: "CASHIER-102"},
+	{ID: "LANE-03", Type: "SELF_CHECKOUT", Cashier: "CUSTOMER_SELF"},
+	{ID: "LANE-04", Type: "SELF_CHECKOUT", Cashier: "CUSTOMER_SELF"},
+}
 
 type OrderResponse struct {
 	OrderNo string `json:"order_no"`
@@ -22,21 +36,40 @@ type OrderResponse struct {
 }
 
 func main() {
-	fmt.Println("Starting POS Chaos Simulator...")
+	fmt.Println("Starting Multi-Lane POS Store Traffic & Chaos Simulator...")
+	fmt.Println("Simulating concurrent transactions for Store: STORE-104 across Lanes 1..4")
 	fmt.Println("Press Ctrl+C to stop.")
 
-	// Start various simulation workers
-	go staleCatalogSimulation()
-	go abandonedCartSimulation()
-	go insufficientCashSimulation()
-	go prematureFinalizeSimulation()
+	// Start background simulation routines per lane
+	go lane1ExpressTraffic()
+	go lane2MainBeltTraffic()
+	go lane3SelfCheckoutChaos()
+	go lane4SelfCheckoutChaos()
 
-	// Keep main goroutine alive
 	select {}
 }
 
-func createOrder() (string, string, error) {
-	resp, err := http.Post(OrderServiceURL+"/orders", "application/json", nil)
+func doRequest(method, url string, lane LaneConfig, body []byte) (*http.Response, error) {
+	var bodyReader io.Reader
+	if body != nil {
+		bodyReader = bytes.NewBuffer(body)
+	}
+	req, err := http.NewRequest(method, url, bodyReader)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Store-ID", StoreID)
+	req.Header.Set("X-Lane-ID", lane.ID)
+	req.Header.Set("X-Lane-Type", lane.Type)
+	req.Header.Set("X-Cashier-ID", lane.Cashier)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	return client.Do(req)
+}
+
+func createOrder(lane LaneConfig) (string, string, error) {
+	resp, err := doRequest("POST", OrderServiceURL+"/orders", lane, nil)
 	if err != nil {
 		return "", "", err
 	}
@@ -49,94 +82,130 @@ func createOrder() (string, string, error) {
 	return order.OrderNo, order.TraceID, nil
 }
 
-// Simulation 1: Stale Catalog (Attempts to add invalid SKUs)
-func staleCatalogSimulation() {
+// Lane 1: Express Cashier Traffic (Fast successful orders)
+func lane1ExpressTraffic() {
+	lane := Lanes[0]
 	for {
-		time.Sleep(time.Duration(rand.Intn(10)+5) * time.Second)
-		orderNo, _, err := createOrder()
+		time.Sleep(time.Duration(rand.Intn(6)+4) * time.Second)
+		orderNo, traceID, err := createOrder(lane)
 		if err != nil {
 			continue
 		}
 
-		// Try to add a fake SKU
-		payload := []byte(`{"sku": "999999", "name": "Discontinued Item", "quantity": 1, "unit_price": 100}`)
-		http.Post(fmt.Sprintf("%s/orders/%s/items", OrderServiceURL, orderNo), "application/json", bytes.NewBuffer(payload))
-		fmt.Printf("[Sim] Stale Catalog Error triggered for %s\n", orderNo)
-	}
-}
-
-// Simulation 2: Abandoned Carts (Creates orders, adds valid items, never pays)
-func abandonedCartSimulation() {
-	for {
-		time.Sleep(time.Duration(rand.Intn(15)+10) * time.Second)
-		orderNo, _, err := createOrder()
-		if err != nil {
+		// Add Apples
+		doRequest("POST", fmt.Sprintf("%s/orders/%s/items", OrderServiceURL, orderNo), lane, []byte(`{"sku": "100001", "quantity": 1}`))
+		// Calculate
+		calcResp, _ := doRequest("POST", fmt.Sprintf("%s/orders/%s/calculate", OrderServiceURL, orderNo), lane, nil)
+		if calcResp == nil {
 			continue
 		}
-
-		// Add valid item (Bread - 100003)
-		payload := []byte(`{"sku": "100003", "quantity": 1}`)
-		http.Post(fmt.Sprintf("%s/orders/%s/items", OrderServiceURL, orderNo), "application/json", bytes.NewBuffer(payload))
-		
-		// Calculate total
-		http.Post(fmt.Sprintf("%s/orders/%s/calculate", OrderServiceURL, orderNo), "application/json", nil)
-		
-		fmt.Printf("[Sim] Cart Abandoned for %s\n", orderNo)
-		// Stops here, leaving order OPEN
-	}
-}
-
-// Simulation 3: Cashier Error - Insufficient Cash
-func insufficientCashSimulation() {
-	for {
-		time.Sleep(time.Duration(rand.Intn(20)+10) * time.Second)
-		orderNo, traceID, err := createOrder()
-		if err != nil {
-			continue
-		}
-
-		// Add valid item (Milk - 100004)
-		payload := []byte(`{"sku": "100004", "quantity": 1}`)
-		http.Post(fmt.Sprintf("%s/orders/%s/items", OrderServiceURL, orderNo), "application/json", bytes.NewBuffer(payload))
-		
-		// Calculate total
-		calcResp, _ := http.Post(fmt.Sprintf("%s/orders/%s/calculate", OrderServiceURL, orderNo), "application/json", nil)
 		var calc map[string]interface{}
 		json.NewDecoder(calcResp.Body).Decode(&calc)
 		calcResp.Body.Close()
 
-		total := calc["total"].(float64)
+		total, ok := calc["total"].(float64)
+		if !ok || total <= 0 {
+			total = 5.41
+		}
 
-		// Pay with less cash than required (shortfall)
-		shortfallPayment := fmt.Sprintf(`{"order_no": "%s", "trace_id": "%s", "amount": %.2f, "cash_received": %.2f}`, 
-			orderNo, traceID, total, total-10.0)
-		
-		http.Post(PaymentServiceURL+"/payments", "application/json", bytes.NewBuffer([]byte(shortfallPayment)))
-		fmt.Printf("[Sim] Insufficient Cash Error triggered for %s\n", orderNo)
+		// Pay & Finalize
+		payPayload := []byte(fmt.Sprintf(`{"order_no": "%s", "trace_id": "%s", "amount": %.2f, "cash_received": %.2f}`, orderNo, traceID, total, total+5.0))
+		payResp, err := doRequest("POST", PaymentServiceURL+"/payments", lane, payPayload)
+		if err == nil && payResp != nil {
+			payResp.Body.Close()
+			finPayload := []byte(fmt.Sprintf(`{"order_no": "%s", "trace_id": "%s"}`, orderNo, traceID))
+			finResp, _ := doRequest("POST", FinalizeServiceURL+"/finalize", lane, finPayload)
+			if finResp != nil {
+				finResp.Body.Close()
+			}
+			fmt.Printf("[Sim][%s] Order %s Completed Successfully\n", lane.ID, orderNo)
+		}
 	}
 }
 
-// Simulation 4: Premature Finalize (Trying to finalize an unpaid order)
-func prematureFinalizeSimulation() {
+// Lane 2: Main Belt Traffic (Large orders)
+func lane2MainBeltTraffic() {
+	lane := Lanes[1]
 	for {
-		time.Sleep(time.Duration(rand.Intn(25)+15) * time.Second)
-		orderNo, traceID, err := createOrder()
+		time.Sleep(time.Duration(rand.Intn(10)+8) * time.Second)
+		orderNo, traceID, err := createOrder(lane)
 		if err != nil {
 			continue
 		}
 
-		// Add valid item
-		payload := []byte(`{"sku": "100001", "quantity": 1}`)
-		http.Post(fmt.Sprintf("%s/orders/%s/items", OrderServiceURL, orderNo), "application/json", bytes.NewBuffer(payload))
-
-		// Try to finalize immediately without paying
-		finalizePayload := []byte(fmt.Sprintf(`{"order_no": "%s", "trace_id": "%s"}`, orderNo, traceID))
-		resp, _ := http.Post(FinalizeServiceURL+"/finalize", "application/json", bytes.NewBuffer(finalizePayload))
-		if resp != nil {
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+		doRequest("POST", fmt.Sprintf("%s/orders/%s/items", OrderServiceURL, orderNo), lane, []byte(`{"sku": "100021", "quantity": 2}`))
+		doRequest("POST", fmt.Sprintf("%s/orders/%s/items", OrderServiceURL, orderNo), lane, []byte(`{"sku": "100037", "quantity": 1}`))
+		calcResp, _ := doRequest("POST", fmt.Sprintf("%s/orders/%s/calculate", OrderServiceURL, orderNo), lane, nil)
+		if calcResp == nil {
+			continue
 		}
-		
-		fmt.Printf("[Sim] Premature Finalize Error triggered for %s\n", orderNo)
+		var calc map[string]interface{}
+		json.NewDecoder(calcResp.Body).Decode(&calc)
+		calcResp.Body.Close()
+
+		total, ok := calc["total"].(float64)
+		if !ok || total <= 0 {
+			total = 17.80
+		}
+
+		payPayload := []byte(fmt.Sprintf(`{"order_no": "%s", "trace_id": "%s", "amount": %.2f, "cash_received": %.2f}`, orderNo, traceID, total, total))
+		payResp, err := doRequest("POST", PaymentServiceURL+"/payments", lane, payPayload)
+		if err == nil && payResp != nil {
+			payResp.Body.Close()
+			finPayload := []byte(fmt.Sprintf(`{"order_no": "%s", "trace_id": "%s"}`, orderNo, traceID))
+			finResp, _ := doRequest("POST", FinalizeServiceURL+"/finalize", lane, finPayload)
+			if finResp != nil {
+				finResp.Body.Close()
+			}
+			fmt.Printf("[Sim][%s] Order %s Completed Successfully\n", lane.ID, orderNo)
+		}
+	}
+}
+
+// Lane 3: Self-Checkout 1 Chaos (Stale SKUs & Unpaid orders)
+func lane3SelfCheckoutChaos() {
+	lane := Lanes[2]
+	for {
+		time.Sleep(time.Duration(rand.Intn(12)+6) * time.Second)
+		orderNo, _, err := createOrder(lane)
+		if err != nil {
+			continue
+		}
+
+		// Try to scan fake/discontinued SKU
+		payload := []byte(`{"sku": "999999", "quantity": 1}`)
+		doRequest("POST", fmt.Sprintf("%s/orders/%s/items", OrderServiceURL, orderNo), lane, payload)
+		fmt.Printf("[Sim][%s] Stale SKU scanned on %s\n", lane.ID, orderNo)
+	}
+}
+
+// Lane 4: Self-Checkout 2 Chaos (Insufficient cash / Payment rejection)
+func lane4SelfCheckoutChaos() {
+	lane := Lanes[3]
+	for {
+		time.Sleep(time.Duration(rand.Intn(15)+10) * time.Second)
+		orderNo, traceID, err := createOrder(lane)
+		if err != nil {
+			continue
+		}
+
+		doRequest("POST", fmt.Sprintf("%s/orders/%s/items", OrderServiceURL, orderNo), lane, []byte(`{"sku": "100083", "quantity": 1}`))
+		calcResp, _ := doRequest("POST", fmt.Sprintf("%s/orders/%s/calculate", OrderServiceURL, orderNo), lane, nil)
+		if calcResp == nil {
+			continue
+		}
+		var calc map[string]interface{}
+		json.NewDecoder(calcResp.Body).Decode(&calc)
+		calcResp.Body.Close()
+
+		total, ok := calc["total"].(float64)
+		if !ok || total <= 0 {
+			total = 7.50
+		}
+
+		// Customer attempts to pay with insufficient cash (shortfall)
+		shortfallPayload := []byte(fmt.Sprintf(`{"order_no": "%s", "trace_id": "%s", "amount": %.2f, "cash_received": %.2f}`, orderNo, traceID, total, total-2.0))
+		doRequest("POST", PaymentServiceURL+"/payments", lane, shortfallPayload)
+		fmt.Printf("[Sim][%s] Insufficient Cash payment attempt on %s\n", lane.ID, orderNo)
 	}
 }

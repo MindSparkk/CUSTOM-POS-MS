@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"retail-pos/pkg/config"
 	"retail-pos/pkg/logger"
 	"retail-pos/pkg/models"
 
@@ -95,10 +96,11 @@ func main() {
 	r := mux.NewRouter()
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(models.HealthResponse{Service: "telemetry-service", Status: "UP"})
-	}).Methods("GET")
-	r.HandleFunc("/ingest", ingestHandler).Methods("POST")
-	r.HandleFunc("/logs", getLogsHandler).Methods("GET") // For initial load
-	r.HandleFunc("/stream", streamHandler).Methods("GET") // For SSE real-time stream
+	}).Methods("GET", "OPTIONS")
+	r.HandleFunc("/config", getConfigHandler).Methods("GET", "OPTIONS")
+	r.HandleFunc("/ingest", ingestHandler).Methods("POST", "OPTIONS")
+	r.HandleFunc("/logs", getLogsHandler).Methods("GET", "OPTIONS") // For initial load
+	r.HandleFunc("/stream", streamHandler).Methods("GET", "OPTIONS") // For SSE real-time stream
 
 	c := cors.New(cors.Options{
 		AllowedOrigins: []string{"*"},
@@ -209,4 +211,10 @@ func streamHandler(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+func getConfigHandler(w http.ResponseWriter, r *http.Request) {
+	cfg := config.GetConfig()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(cfg)
 }

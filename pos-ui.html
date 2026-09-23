@@ -3,23 +3,35 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Modern POS UI</title>
+    <title>Modern Multi-Lane Retail POS UI</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
     <!-- React & ReactDOM -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <!-- Babel for JSX -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Custom Scrollbar & Height Rules -->
     <style>
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        body { font-family: 'Inter', sans-serif; }
+        .font-outfit { font-family: 'Outfit', sans-serif; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
         ::-webkit-scrollbar-track { background: #f1f5f9; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .product-card {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .product-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px -5px rgba(59, 130, 246, 0.15), 0 8px 10px -6px rgba(59, 130, 246, 0.1);
+        }
     </style>
 </head>
-<body class="bg-gray-100 h-screen w-screen overflow-hidden font-sans">
+<body class="bg-slate-100 h-screen w-screen overflow-hidden text-slate-800">
     <div id="root" class="h-full w-full"></div>
 
     <script type="text/babel">
@@ -28,128 +40,294 @@
         const ORDER_API = 'http://localhost:8081';
         const PAYMENT_API = 'http://localhost:8083';
         const FINALIZE_API = 'http://localhost:8084';
+        const TELEMETRY_API = 'http://localhost:8085';
+
+        const CASHIERS = [
+            { cashier_id: 'CASHIER-101', name: 'Sarah Jenkins', role: 'SENIOR_CASHIER', avatar: '👩‍💼' },
+            { cashier_id: 'CASHIER-102', name: 'Michael Chang', role: 'EXPRESS_CASHIER', avatar: '👨‍💼' },
+            { cashier_id: 'CASHIER-103', name: 'Alex Rivera', role: 'TRAINEE_CASHIER', avatar: '🧑‍💼' },
+            { cashier_id: 'CUSTOMER_SELF', name: 'Self-Service Customer', role: 'SELF_SERVICE', avatar: '🤖' }
+        ];
+
+        const INITIAL_LANES = [
+            { id: 'LANE-01', name: 'Lane 1 (Express Cashier)', type: 'CASHIER_EXPRESS', cashier: 'CASHIER-101', icon: '⚡' },
+            { id: 'LANE-02', name: 'Lane 2 (Main Belt Cashier)', type: 'CASHIER_BELT', cashier: 'CASHIER-102', icon: '🛒' },
+            { id: 'LANE-03', name: 'Lane 3 (Self-Checkout 1)', type: 'SELF_CHECKOUT', cashier: 'CUSTOMER_SELF', icon: '🤖' },
+            { id: 'LANE-04', name: 'Lane 4 (Self-Checkout 2)', type: 'SELF_CHECKOUT', cashier: 'CUSTOMER_SELF', icon: '🤖' }
+        ];
+
+        const CATEGORIES = [
+            { id: 'ALL', name: 'All Products', icon: '🌐' },
+            { id: 'Produce', name: 'Produce', icon: '🍎' },
+            { id: 'Dairy', name: 'Dairy', icon: '🥛' },
+            { id: 'Meat', name: 'Meat', icon: '🥩' },
+            { id: 'Beverages', name: 'Beverages', icon: '🥤' },
+            { id: 'Household', name: 'Household', icon: '🧴' }
+        ];
 
         const TOP_ITEMS = [
-            { sku: '100001', name: 'Coca-Cola 12-Pack', price: 6.99 },
-            { sku: '100002', name: "Lay's Potato Chips", price: 4.50 },
-            { sku: '100003', name: 'Whole Wheat Bread', price: 3.49 },
-            { sku: '100004', name: 'Gallon Whole Milk', price: 4.29 },
-            { sku: '100005', name: 'Oreo Cookies', price: 5.00 },
-            { sku: '100008', name: 'Fresh Apples (Bag)', price: 5.99 },
-            { sku: '100037', name: 'Ground Meat', price: 7.99 },
-            { sku: '100109', name: 'Laundry Detergent', price: 12.99 }
+            { sku: '100001', name: 'Apples', category: 'Produce', price: 4.99, icon: '🍎' },
+            { sku: '100002', name: 'Bananas', category: 'Produce', price: 1.99, icon: '🍌' },
+            { sku: '100021', name: 'Whole Milk', category: 'Dairy', price: 4.29, icon: '🥛' },
+            { sku: '100049', name: 'White Bread', category: 'Produce', price: 2.99, icon: '🍞' },
+            { sku: '100083', name: 'Coca-Cola 12-Pack', category: 'Beverages', price: 6.99, icon: '🥤' },
+            { sku: '100095', name: 'Potato Chips', category: 'Produce', price: 4.49, icon: '🥔' },
+            { sku: '100037', name: 'Ground Meat', category: 'Meat', price: 7.99, icon: '🥩' },
+            { sku: '100109', name: 'Laundry Detergent', category: 'Household', price: 11.99, icon: '🧴' }
         ];
 
         function App() {
-            const [orderNo, setOrderNo] = useState('');
-            const [traceId, setTraceId] = useState('');
-            const [items, setItems] = useState([]);
-            const [totals, setTotals] = useState({ subtotal: 0, discount: 0, tax: 0, total: 0 });
+            const [storeId, setStoreId] = useState('STORE-104');
+            const [lanes, setLanes] = useState(INITIAL_LANES);
+            const [activeLaneId, setActiveLaneId] = useState('LANE-01');
+            const [activeCashierId, setActiveCashierId] = useState('CASHIER-101');
+            const [newLaneName, setNewLaneName] = useState('');
+            const [showAddLane, setShowAddLane] = useState(false);
+            const [activeFailures, setActiveFailures] = useState({});
+            const [searchQuery, setSearchQuery] = useState('');
+            const [selectedCategory, setSelectedCategory] = useState('ALL');
             
+            const [laneStates, setLaneStates] = useState({
+                'LANE-01': { orderNo: '', traceId: '', items: [], totals: { subtotal: 0, discount: 0, tax: 0, total: 0 }, status: 'IDLE', receipt: '', changeAmount: 0, isCheckout: false },
+                'LANE-02': { orderNo: '', traceId: '', items: [], totals: { subtotal: 0, discount: 0, tax: 0, total: 0 }, status: 'IDLE', receipt: '', changeAmount: 0, isCheckout: false },
+                'LANE-03': { orderNo: '', traceId: '', items: [], totals: { subtotal: 0, discount: 0, tax: 0, total: 0 }, status: 'IDLE', receipt: '', changeAmount: 0, isCheckout: false },
+                'LANE-04': { orderNo: '', traceId: '', items: [], totals: { subtotal: 0, discount: 0, tax: 0, total: 0 }, status: 'IDLE', receipt: '', changeAmount: 0, isCheckout: false }
+            });
+
+            // Fetch dynamic store configuration on mount (Swagger GET /config)
+            useEffect(() => {
+                fetch(`${TELEMETRY_API}/config`)
+                    .then(res => res.json())
+                    .then(cfg => {
+                        if (cfg.store && cfg.store.store_id) {
+                            setStoreId(cfg.store.store_id);
+                        }
+                        if (cfg.lanes && cfg.lanes.length > 0) {
+                            const formattedLanes = cfg.lanes.map(l => ({
+                                id: l.lane_id,
+                                name: l.lane_name,
+                                type: l.lane_type,
+                                cashier: l.cashier_id,
+                                icon: l.icon || '🛒'
+                            }));
+                            setLanes(formattedLanes);
+                        }
+                    })
+                    .catch(e => console.log('Using initial config values', e));
+            }, []);
+
+            const addNewLane = () => {
+                if (!newLaneName.trim()) return;
+                const laneNum = lanes.length + 1;
+                const newId = `LANE-0${laneNum}`;
+                const newLane = {
+                    id: newId,
+                    name: newLaneName,
+                    type: 'CASHIER_EXPRESS',
+                    cashier: `CASHIER-10${laneNum}`,
+                    icon: '🛒'
+                };
+                setLanes(prev => [...prev, newLane]);
+                setLaneStates(prev => ({
+                    ...prev,
+                    [newId]: { orderNo: '', traceId: '', items: [], totals: { subtotal: 0, discount: 0, tax: 0, total: 0 }, status: 'IDLE', receipt: '', changeAmount: 0, isCheckout: false }
+                }));
+                setActiveLaneId(newId);
+                setNewLaneName('');
+                setShowAddLane(false);
+            };
+
             const [skuInput, setSkuInput] = useState('');
             const [cashInput, setCashInput] = useState('');
-            
-            const [status, setStatus] = useState('IDLE'); // IDLE, OPEN, CHECKOUT, PAID, COMPLETED
-            const [receipt, setReceipt] = useState('');
             const [errorMsg, setErrorMsg] = useState('');
 
-            const createOrder = async () => {
+            const currentLane = lanes.find(l => l.id === activeLaneId) || lanes[0];
+            const currentState = laneStates[activeLaneId] || { orderNo: '', traceId: '', items: [], totals: { subtotal: 0, discount: 0, tax: 0, total: 0 }, status: 'IDLE', receipt: '', changeAmount: 0, isCheckout: false };
+
+            const selectLane = (laneId) => {
+                setActiveLaneId(laneId);
+                const laneObj = lanes.find(l => l.id === laneId);
+                if (laneObj && laneObj.cashier) {
+                    setActiveCashierId(laneObj.cashier);
+                }
+            };
+
+            const getHeaders = () => ({
+                'Content-Type': 'application/json',
+                'X-Store-ID': storeId,
+                'X-Lane-ID': currentLane ? currentLane.id : activeLaneId,
+                'X-Lane-Type': currentLane ? currentLane.type : 'CASHIER_EXPRESS',
+                'X-Cashier-ID': activeCashierId
+            });
+
+            const updateLaneState = (laneId, patch) => {
+                setLaneStates(prev => ({
+                    ...prev,
+                    [laneId]: { ...prev[laneId], ...patch }
+                }));
+            };
+
+            const toggleChaos = async (failureType) => {
+                const nextState = !activeFailures[failureType];
+                try {
+                    const services = [ORDER_API, PAYMENT_API, FINALIZE_API];
+                    await Promise.all(services.map(svc => 
+                        fetch(`${svc}/simulation/failures`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ type: failureType, enabled: nextState, duration_ms: 5000 })
+                        }).catch(() => {})
+                    ));
+                    setActiveFailures(prev => ({ ...prev, [failureType]: nextState }));
+                } catch (e) {
+                    console.error('Chaos toggle error', e);
+                }
+            };
+
+            // Swagger POST /orders
+            const createOrder = async (targetLaneId = activeLaneId) => {
+                const laneInfo = lanes.find(l => l.id === targetLaneId) || currentLane;
                 try {
                     setErrorMsg('');
-                    const res = await fetch(`${ORDER_API}/orders`, { method: 'POST' });
+                    const res = await fetch(`${ORDER_API}/orders`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Store-ID': storeId,
+                            'X-Lane-ID': laneInfo.id,
+                            'X-Lane-Type': laneInfo.type,
+                            'X-Cashier-ID': activeCashierId || laneInfo.cashier
+                        }
+                    });
                     const data = await res.json();
-                    setOrderNo(data.order_no);
-                    setTraceId(data.trace_id);
-                    setStatus('OPEN');
-                    setItems([]);
-                    setTotals({ subtotal: 0, discount: 0, tax: 0, total: 0 });
-                    setReceipt('');
+                    if (!res.ok) {
+                        setErrorMsg(data.message || 'Failed to create order');
+                        return null;
+                    }
+                    updateLaneState(targetLaneId, {
+                        orderNo: data.order_no,
+                        traceId: data.trace_id,
+                        status: 'OPEN',
+                        items: [],
+                        totals: { subtotal: 0, discount: 0, tax: 0, total: 0 },
+                        receipt: '',
+                        changeAmount: 0,
+                        isCheckout: false
+                    });
                     setCashInput('');
                     return data.order_no;
                 } catch (e) {
-                    setErrorMsg('Failed to connect to Order Service (Port 8081). Is the service running?');
+                    setErrorMsg('Order Service unreachable (Port 8081).');
                     return null;
                 }
             };
 
-            const fetchOrderDetails = async (oNo) => {
+            // Swagger GET /orders/{orderNo}
+            const fetchOrderDetails = async (oNo, targetLaneId = activeLaneId) => {
+                const laneInfo = lanes.find(l => l.id === targetLaneId) || currentLane;
                 try {
-                    const res = await fetch(`${ORDER_API}/orders/${oNo}`);
+                    const res = await fetch(`${ORDER_API}/orders/${oNo}`, {
+                        headers: {
+                            'X-Store-ID': storeId,
+                            'X-Lane-ID': laneInfo.id,
+                            'X-Lane-Type': laneInfo.type,
+                            'X-Cashier-ID': activeCashierId || laneInfo.cashier
+                        }
+                    });
                     const data = await res.json();
-                    setItems(data.items || []);
-                    setTotals({
-                        subtotal: data.subtotal || 0,
-                        discount: data.discount || 0,
-                        tax: data.tax || 0,
-                        total: data.total || 0
+                    updateLaneState(targetLaneId, {
+                        items: data.items || [],
+                        totals: {
+                            subtotal: data.subtotal || 0,
+                            discount: data.discount || 0,
+                            tax: data.tax || 0,
+                            total: data.total || 0
+                        }
                     });
                 } catch (e) {
-                    console.error(e);
+                    console.error('Fetch order error', e);
                 }
             };
 
+            // Swagger POST /orders/{orderNo}/items & POST /orders/{orderNo}/calculate
             const addItem = async (sku) => {
-                let currentOrderNo = orderNo;
-                if (!currentOrderNo || status === 'COMPLETED' || status === 'IDLE') {
-                    currentOrderNo = await createOrder();
-                    if (!currentOrderNo) return;
+                if (!sku || !sku.trim()) return;
+                let orderNo = currentState.orderNo;
+                if (!orderNo || currentState.status === 'COMPLETED' || currentState.status === 'IDLE') {
+                    orderNo = await createOrder(activeLaneId);
+                    if (!orderNo) return;
                 }
 
                 try {
                     setErrorMsg('');
-                    const res = await fetch(`${ORDER_API}/orders/${currentOrderNo}/items`, {
+                    const res = await fetch(`${ORDER_API}/orders/${orderNo}/items`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ sku, quantity: 1 })
+                        headers: getHeaders(),
+                        body: JSON.stringify({ sku: sku.trim(), quantity: 1 })
                     });
                     
+                    const data = await res.json();
                     if (!res.ok) {
-                        const err = await res.json();
-                        setErrorMsg(err.message || 'Failed to add item');
+                        setErrorMsg(data.message || `Failed to add SKU ${sku}`);
                         return;
                     }
 
-                    // Auto calculate total after adding item
-                    await fetch(`${ORDER_API}/orders/${currentOrderNo}/calculate`, { method: 'POST' });
-                    await fetchOrderDetails(currentOrderNo);
+                    // Swagger POST /orders/{orderNo}/calculate
+                    await fetch(`${ORDER_API}/orders/${orderNo}/calculate`, {
+                        method: 'POST',
+                        headers: getHeaders()
+                    });
+                    await fetchOrderDetails(orderNo, activeLaneId);
                     setSkuInput('');
+                    setSearchQuery('');
                 } catch (e) {
-                    setErrorMsg('Order Service error');
+                    setErrorMsg('Error connecting to Order Service');
                 }
             };
 
+            // Swagger DELETE /orders/{orderNo}/items/{sku} & recalculate
             const voidItem = async (sku) => {
                 try {
                     setErrorMsg('');
-                    const res = await fetch(`${ORDER_API}/orders/${orderNo}/items/${sku}`, { method: 'DELETE' });
+                    const res = await fetch(`${ORDER_API}/orders/${currentState.orderNo}/items/${sku}`, {
+                        method: 'DELETE',
+                        headers: getHeaders()
+                    });
                     if (!res.ok) {
                         const err = await res.json();
                         setErrorMsg(err.message || 'Failed to void item');
                         return;
                     }
-                    await fetchOrderDetails(orderNo);
+
+                    // Recalculate totals after void
+                    await fetch(`${ORDER_API}/orders/${currentState.orderNo}/calculate`, {
+                        method: 'POST',
+                        headers: getHeaders()
+                    });
+                    await fetchOrderDetails(currentState.orderNo, activeLaneId);
                 } catch (e) {
                     setErrorMsg('Failed to void item');
                 }
             };
 
-            const payCash = async () => {
+            // Swagger POST /payments (Backend handles cash validation)
+            const payCash = async (overrideCash = null) => {
                 try {
                     setErrorMsg('');
-                    const cashVal = parseFloat((parseInt(cashInput || '0', 10) / 100).toFixed(2));
-                    
-                    if (cashVal < totals.total) {
-                        setErrorMsg(`Insufficient cash! Total is $${totals.total.toFixed(2)}, but received $${cashVal.toFixed(2)}`);
+                    const valToUse = overrideCash !== null ? overrideCash : cashInput;
+                    const cashVal = parseFloat(valToUse);
+                    if (isNaN(cashVal)) {
+                        setErrorMsg('Please enter a valid numeric cash amount.');
                         return;
                     }
 
                     const res = await fetch(`${PAYMENT_API}/payments`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: getHeaders(),
                         body: JSON.stringify({
-                            order_no: orderNo,
-                            trace_id: traceId,
-                            amount: totals.total,
+                            order_no: currentState.orderNo,
+                            trace_id: currentState.traceId,
+                            amount: currentState.totals.total,
                             cash_received: cashVal
                         })
                     });
@@ -160,21 +338,27 @@
                         return;
                     }
 
-                    setStatus('PAID');
+                    updateLaneState(activeLaneId, { 
+                        status: 'PAID',
+                        cashReceived: data.cash_received,
+                        changeAmount: data.change_amount,
+                        isCheckout: false
+                    });
                 } catch (e) {
                     setErrorMsg('Payment Service error (Port 8083)');
                 }
             };
 
+            // Swagger POST /finalize & GET /orders/{orderNo}/receipt
             const finalizeOrder = async () => {
                 try {
                     setErrorMsg('');
                     const res = await fetch(`${FINALIZE_API}/finalize`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: getHeaders(),
                         body: JSON.stringify({
-                            order_no: orderNo,
-                            trace_id: traceId
+                            order_no: currentState.orderNo,
+                            trace_id: currentState.traceId
                         })
                     });
 
@@ -184,195 +368,385 @@
                         return;
                     }
 
-                    // Fetch receipt
-                    const receiptRes = await fetch(`${FINALIZE_API}/orders/${orderNo}/receipt`);
+                    // Swagger GET /orders/{orderNo}/receipt
+                    const receiptRes = await fetch(`${FINALIZE_API}/orders/${currentState.orderNo}/receipt`, {
+                        headers: getHeaders()
+                    });
                     const receiptData = await receiptRes.json();
-                    setReceipt(receiptData.receipt_text || 'Order Completed');
-                    setStatus('COMPLETED');
+                    updateLaneState(activeLaneId, {
+                        receipt: receiptData.receipt_text || 'Order Completed',
+                        status: 'COMPLETED',
+                        isCheckout: false
+                    });
                 } catch (e) {
                     setErrorMsg('Finalize Service error (Port 8084)');
                 }
             };
 
+            const filteredTopItems = TOP_ITEMS.filter(i => {
+                const matchesCategory = selectedCategory === 'ALL' || i.category === selectedCategory;
+                const matchesSearch = !searchQuery.trim() || 
+                    i.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                    i.sku.includes(searchQuery);
+                return matchesCategory && matchesSearch;
+            });
+
             return (
-                <div className="h-screen w-screen flex flex-col bg-gray-100 p-2 sm:p-4 overflow-hidden">
-                    <div className="h-full w-full max-w-7xl mx-auto bg-white rounded-2xl shadow-xl flex flex-col md:flex-row overflow-hidden border border-gray-200">
+                <div className="h-screen w-screen flex flex-col bg-slate-900 p-2 sm:p-4 overflow-hidden select-none">
+                    <div className="h-full w-full max-w-[1600px] mx-auto bg-slate-50 rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-700/50">
                         
-                        {/* LEFT PANEL: Cart & Actions (Always visible buttons on small screens) */}
-                        <div className="w-full md:w-5/12 lg:w-4/12 border-b md:border-b-0 md:border-r border-gray-200 flex flex-col h-full bg-white shrink-0">
-                            
-                            {/* Header */}
-                            <div className="p-3 sm:p-4 bg-gray-900 text-white flex justify-between items-center shrink-0">
-                                <h1 className="text-base sm:text-lg font-bold flex items-center gap-2">
-                                    🛒 Retail POS
-                                </h1>
-                                <div className="flex items-center gap-2">
-                                    {status !== 'IDLE' && <span className="text-[11px] font-mono bg-gray-800 px-2 py-0.5 rounded border border-gray-700">{orderNo}</span>}
-                                    <button onClick={() => window.open('monitor-ui.html', '_blank', 'width=1200,height=800')} className="text-xs bg-blue-600 hover:bg-blue-500 px-2.5 py-1 rounded font-bold transition flex items-center gap-1 shadow">
-                                        📊 Monitor
-                                    </button>
+                        {/* SLEEK GLASSMORPHIC CONTROL HEADER */}
+                        <header className="bg-slate-950 text-white px-4 py-3 border-b border-slate-800 flex flex-wrap justify-between items-center gap-3 shrink-0 shadow-lg">
+                            <div className="flex items-center gap-3">
+                                {/* Store Brand Badge */}
+                                <div className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 px-3.5 py-1.5 rounded-2xl font-outfit font-extrabold text-sm shadow-md border border-blue-400/30">
+                                    <span className="text-lg">🛒</span>
+                                    <input 
+                                        type="text" 
+                                        value={storeId} 
+                                        onChange={e => setStoreId(e.target.value)}
+                                        className="bg-transparent text-white font-extrabold text-sm focus:outline-none w-24 uppercase tracking-wider"
+                                    />
+                                </div>
+
+                                {/* Cashier Selector */}
+                                <div className="flex items-center gap-2 bg-slate-900 px-3 py-1.5 rounded-2xl border border-slate-800 shadow-inner">
+                                    <span className="text-xs text-slate-400 font-medium">👤 Cashier:</span>
+                                    <select
+                                        value={activeCashierId}
+                                        onChange={e => setActiveCashierId(e.target.value)}
+                                        className="bg-slate-950 text-emerald-400 font-bold text-xs px-2 py-1 rounded-xl focus:outline-none cursor-pointer border border-slate-800 font-outfit"
+                                    >
+                                        {CASHIERS.map(c => (
+                                            <option key={c.cashier_id} value={c.cashier_id}>
+                                                {c.avatar} {c.name} ({c.cashier_id})
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <span className="text-slate-800">|</span>
+
+                                {/* Register Lane Tabs */}
+                                <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
+                                    {lanes.map(lane => {
+                                        const laneState = laneStates[lane.id] || { status: 'IDLE' };
+                                        const isActive = lane.id === activeLaneId;
+                                        return (
+                                            <button 
+                                                key={lane.id}
+                                                onClick={() => selectLane(lane.id)}
+                                                className={`px-3.5 py-1.5 rounded-2xl text-xs font-bold transition-all duration-200 flex items-center gap-2 font-outfit ${
+                                                    isActive 
+                                                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg ring-2 ring-blue-400/50 scale-105' 
+                                                        : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-200 border border-slate-800'
+                                                }`}
+                                            >
+                                                <span className="text-sm">{lane.icon}</span>
+                                                <span>{lane.name}</span>
+                                                {laneState.status !== 'IDLE' && (
+                                                    <span className={`w-2 h-2 rounded-full ${laneState.status === 'PAID' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-amber-400 animate-pulse'}`}></span>
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                    
+                                    {showAddLane ? (
+                                        <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-2xl border border-slate-800">
+                                            <input 
+                                                type="text" 
+                                                placeholder="Lane Name" 
+                                                value={newLaneName} 
+                                                onChange={e => setNewLaneName(e.target.value)}
+                                                className="bg-slate-950 text-xs px-2.5 py-1 rounded-xl text-white w-28 focus:outline-none"
+                                            />
+                                            <button onClick={addNewLane} className="bg-emerald-600 hover:bg-emerald-500 px-2.5 py-1 rounded-xl text-xs font-bold text-white shadow">Add</button>
+                                            <button onClick={() => setShowAddLane(false)} className="text-slate-400 px-1 text-xs hover:text-white">✕</button>
+                                        </div>
+                                    ) : (
+                                        <button onClick={() => setShowAddLane(true)} className="bg-slate-900 hover:bg-slate-800 text-slate-400 px-3 py-1.5 rounded-2xl text-xs font-bold border border-slate-800 transition">
+                                            + Add Lane
+                                        </button>
+                                    )}
                                 </div>
                             </div>
 
-                            {/* Error Alert */}
-                            {errorMsg && (
-                                <div className="bg-red-50 text-red-700 p-2.5 text-xs sm:text-sm border-b border-red-200 font-medium flex items-center gap-2 shrink-0">
-                                    ⚠️ {errorMsg}
+                            {/* Action Buttons & Chaos Tools */}
+                            <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1.5 bg-slate-900 px-2.5 py-1 rounded-2xl border border-slate-800">
+                                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Chaos:</span>
+                                    <button 
+                                        onClick={() => toggleChaos('DATABASE_UNAVAILABLE')}
+                                        className={`text-[10px] px-2 py-1 rounded-xl font-bold transition ${activeFailures['DATABASE_UNAVAILABLE'] ? 'bg-red-600 text-white shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'}`}
+                                    >
+                                        DB Fail
+                                    </button>
+                                    <button 
+                                        onClick={() => toggleChaos('PAYMENT_TIMEOUT')}
+                                        className={`text-[10px] px-2 py-1 rounded-xl font-bold transition ${activeFailures['PAYMENT_TIMEOUT'] ? 'bg-red-600 text-white shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'}`}
+                                    >
+                                        Pay Timeout
+                                    </button>
                                 </div>
-                            )}
 
-                            {/* Scrollable Items List */}
-                            <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-0 bg-gray-50/50">
-                                {items.length === 0 ? (
-                                    <div className="h-full flex flex-col items-center justify-center text-gray-400 p-4">
-                                        <div className="text-4xl sm:text-5xl mb-2 opacity-30">📦</div>
-                                        <p className="font-medium text-xs sm:text-sm text-gray-500">Cart is empty</p>
+                                <button onClick={() => window.open('monitor-ui.html', '_blank', 'width=1250,height=850')} className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-1.5 rounded-2xl font-bold transition flex items-center gap-1.5 shadow-md font-outfit border border-emerald-400/30">
+                                    🟢 Live Monitor
+                                </button>
+                            </div>
+                        </header>
+
+                        {/* MAIN WORKSPACE */}
+                        <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden">
+                            
+                            {/* LEFT PANEL: CART & ACTIONS */}
+                            <div className="w-full md:w-5/12 lg:w-4/12 border-b md:border-b-0 md:border-r border-slate-200 flex flex-col h-full bg-white shrink-0">
+                                
+                                {/* Cart Header */}
+                                <div className="p-3.5 bg-slate-50 border-b border-slate-200 flex justify-between items-center shrink-0">
+                                    <div>
+                                        <div className="text-xs font-extrabold text-slate-800 font-outfit uppercase tracking-wide">{currentLane.name}</div>
+                                        <div className="text-[10px] text-slate-500 font-mono mt-0.5">Cashier: <span className="text-slate-700 font-bold">{activeCashierId}</span> | Type: {currentLane.type}</div>
                                     </div>
-                                ) : (
-                                    items.map((item, idx) => (
-                                        <div key={idx} className="bg-white p-2.5 sm:p-3 rounded-lg shadow-sm border border-gray-200 flex justify-between items-center transition-all hover:shadow">
-                                            <div className="min-w-0 flex-1 pr-2">
-                                                <h4 className="font-bold text-gray-800 text-xs sm:text-sm truncate">{item.name}</h4>
-                                                <div className="flex items-center gap-2 mt-0.5">
-                                                    <span className="text-[10px] font-mono text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">SKU: {item.sku}</span>
-                                                    <span className="text-[10px] text-gray-500">Qty: {item.quantity}</span>
+                                    {currentState.orderNo ? (
+                                        <span className="text-xs font-mono font-bold bg-blue-50 text-blue-700 px-3 py-1 rounded-xl border border-blue-200/80 shadow-sm">{currentState.orderNo}</span>
+                                    ) : (
+                                        <button onClick={() => createOrder()} className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-xl font-bold transition shadow-md">
+                                            + New Order
+                                        </button>
+                                    )}
+                                </div>
+
+                                {errorMsg && (
+                                    <div className="bg-red-500 text-white p-3 text-xs font-semibold shadow-md flex items-center gap-2 shrink-0 animate-pulse">
+                                        <span>⚠️</span>
+                                        <span className="flex-1">{errorMsg}</span>
+                                    </div>
+                                )}
+
+                                {/* Cart List */}
+                                <div className="flex-1 overflow-y-auto p-3.5 space-y-2.5 min-h-0 bg-slate-50/50">
+                                    {currentState.items.length === 0 ? (
+                                        <div className="h-full flex flex-col items-center justify-center text-slate-400 p-6 text-center">
+                                            <div className="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center text-4xl mb-3 shadow-inner text-slate-300">🛒</div>
+                                            <h4 className="font-outfit font-extrabold text-base text-slate-700 mb-1">Cart is empty</h4>
+                                            <p className="font-medium text-xs text-slate-400 max-w-xs">Start scanning items or select a product to add to the cart.</p>
+                                        </div>
+                                    ) : (
+                                        currentState.items.map((item, idx) => (
+                                            <div key={idx} className="bg-white p-3 rounded-2xl shadow-sm border border-slate-200/80 flex justify-between items-center hover:border-blue-300 transition">
+                                                <div className="min-w-0 flex-1 pr-3">
+                                                    <h4 className="font-bold text-slate-800 text-xs truncate font-outfit">{item.name}</h4>
+                                                    <div className="flex items-center gap-2 mt-1">
+                                                        <span className="text-[10px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-lg border border-slate-200">SKU: {item.sku}</span>
+                                                        <span className="text-[10px] text-slate-600 font-bold bg-slate-100 px-2 py-0.5 rounded-lg">Qty: {item.quantity}</span>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-2.5 shrink-0">
+                                                    <span className="font-mono font-extrabold text-slate-900 text-sm">${item.total.toFixed(2)}</span>
+                                                    {currentState.status === 'OPEN' && (
+                                                        <button onClick={() => voidItem(item.sku)} className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-xl transition" title="Void Item">
+                                                            🗑️
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </div>
-                                            <div className="flex items-center gap-2 shrink-0">
-                                                <span className="font-bold text-gray-900 text-sm sm:text-base">${item.total.toFixed(2)}</span>
-                                                {status === 'OPEN' && (
-                                                    <button onClick={() => voidItem(item.sku)} className="text-red-500 hover:bg-red-50 p-1 rounded transition text-xs" title="Void Item">
-                                                        🗑️
-                                                    </button>
-                                                )}
+                                        ))
+                                    )}
+                                </div>
+
+                                {/* Totals & Action Controls */}
+                                <div className="p-4 bg-white border-t border-slate-200 shrink-0 space-y-3 shadow-lg">
+                                    <div className="space-y-1.5 text-xs text-slate-600 font-medium">
+                                        <div className="flex justify-between"><span>Subtotal</span><span className="font-mono">${currentState.totals.subtotal.toFixed(2)}</span></div>
+                                        <div className="flex justify-between text-amber-700"><span>Discount</span><span className="font-mono">-${currentState.totals.discount.toFixed(2)}</span></div>
+                                        <div className="flex justify-between"><span>Tax</span><span className="font-mono">${currentState.totals.tax.toFixed(2)}</span></div>
+                                        
+                                        <div className="flex justify-between font-outfit font-extrabold text-base text-slate-900 pt-2 border-t border-slate-200 items-baseline">
+                                            <span>TOTAL</span>
+                                            <span className="text-blue-600 font-mono text-2xl">${currentState.totals.total.toFixed(2)}</span>
+                                        </div>
+
+                                        {currentState.status === 'PAID' && (
+                                            <div className="space-y-1.5 pt-2.5 border-t border-emerald-300 bg-emerald-50/80 p-3 rounded-2xl text-xs border">
+                                                <div className="flex justify-between text-emerald-800">
+                                                    <span>Cash Received:</span>
+                                                    <span className="font-bold font-mono text-sm">${(currentState.cashReceived || 0).toFixed(2)}</span>
+                                                </div>
+                                                <div className="flex justify-between text-emerald-950 font-outfit font-extrabold text-base border-t border-emerald-200 pt-1.5 items-baseline">
+                                                    <span>CHANGE DUE:</span>
+                                                    <span className="font-mono text-xl text-emerald-600">${(currentState.changeAmount || 0).toFixed(2)}</span>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* 1. CHECKOUT BUTTON (When Cart has items & status is OPEN & not in checkout mode) */}
+                                    {currentState.status === 'OPEN' && currentState.items.length > 0 && !currentState.isCheckout && (
+                                        <button 
+                                            onClick={() => updateLaneState(activeLaneId, { isCheckout: true })} 
+                                            className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-outfit font-extrabold text-base py-3.5 rounded-2xl shadow-xl transition-all duration-200 flex items-center justify-center gap-2 transform active:scale-95"
+                                        >
+                                            <span>🛒 Proceed to Checkout (${currentState.totals.total.toFixed(2)})</span>
+                                        </button>
+                                    )}
+
+                                    {/* 2. PAYMENT / CASH INPUT (When in Checkout Mode) */}
+                                    {currentState.status === 'OPEN' && currentState.isCheckout && (
+                                        <div className="pt-2 border-t border-slate-200 space-y-2.5">
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-xs font-bold text-slate-800 font-outfit flex items-center gap-1">💵 Cash Tendered:</span>
+                                                <button 
+                                                    onClick={() => updateLaneState(activeLaneId, { isCheckout: false })}
+                                                    className="text-[11px] text-blue-600 hover:text-blue-800 font-bold underline"
+                                                >
+                                                    ← Back to Items
+                                                </button>
+                                            </div>
+                                            
+                                            {/* Quick Currency Bills */}
+                                            <div className="grid grid-cols-4 gap-1.5">
+                                                <button onClick={() => payCash(currentState.totals.total)} className="text-xs bg-slate-100 hover:bg-blue-50 hover:border-blue-300 text-slate-800 font-bold py-2 rounded-xl border border-slate-200 shadow-sm transition font-mono truncate">
+                                                    Exact (${currentState.totals.total.toFixed(2)})
+                                                </button>
+                                                <button onClick={() => payCash(10)} className="text-xs bg-slate-100 hover:bg-blue-50 hover:border-blue-300 text-slate-800 font-bold py-2 rounded-xl border border-slate-200 shadow-sm transition font-mono">$10</button>
+                                                <button onClick={() => payCash(20)} className="text-xs bg-slate-100 hover:bg-blue-50 hover:border-blue-300 text-slate-800 font-bold py-2 rounded-xl border border-slate-200 shadow-sm transition font-mono">$20</button>
+                                                <button onClick={() => payCash(50)} className="text-xs bg-slate-100 hover:bg-blue-50 hover:border-blue-300 text-slate-800 font-bold py-2 rounded-xl border border-slate-200 shadow-sm transition font-mono">$50</button>
+                                            </div>
+
+                                            <div className="flex items-center gap-2 pt-1">
+                                                <input 
+                                                    type="number" 
+                                                    step="0.01"
+                                                    placeholder="Enter cash (e.g. 11 or 11.00)" 
+                                                    value={cashInput} 
+                                                    onChange={e => setCashInput(e.target.value)}
+                                                    className="w-full text-xs p-3 border border-slate-300 rounded-2xl font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-inner bg-slate-50"
+                                                />
+                                                <button onClick={() => payCash()} className="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-outfit font-extrabold text-xs px-5 py-3 rounded-2xl shadow-lg transition shrink-0 flex items-center gap-1">
+                                                    💵 Pay Cash
+                                                </button>
                                             </div>
                                         </div>
-                                    ))
+                                    )}
+
+                                    {/* 3. FINALIZE BUTTON (When status is PAID) */}
+                                    {currentState.status === 'PAID' && (
+                                        <button onClick={finalizeOrder} className="w-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-outfit font-extrabold text-base py-3.5 rounded-2xl shadow-xl transition-all flex items-center justify-center gap-2 transform active:scale-95">
+                                            ✅ Finalize Order & Print Receipt
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* RIGHT PANEL: CATALOG & RECEIPT */}
+                            <div className="flex-1 flex flex-col h-full bg-slate-50 p-4 sm:p-5 overflow-hidden">
+                                {currentState.receipt ? (
+                                    <div className="h-full flex flex-col bg-slate-950 text-emerald-400 p-5 rounded-3xl font-mono text-xs overflow-y-auto shadow-2xl border border-slate-800">
+                                        <div className="text-center pb-3 border-b border-slate-800 text-slate-400 font-bold mb-3 font-outfit text-sm">
+                                            🧾 TRANSACTION RECEIPT
+                                        </div>
+                                        <pre className="whitespace-pre-wrap flex-1 leading-relaxed text-slate-200">{currentState.receipt}</pre>
+                                        <button onClick={() => createOrder(activeLaneId)} className="mt-4 bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-outfit font-extrabold py-3.5 rounded-2xl shadow-lg text-xs hover:from-emerald-500 hover:to-teal-500 transition">
+                                            + Start Next Transaction
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="h-full flex flex-col min-h-0 space-y-4">
+                                        
+                                        {/* Top Section: Title & Search Bar */}
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+                                            <div>
+                                                <h3 className="font-outfit font-extrabold text-lg text-slate-800 flex items-center gap-2">
+                                                    ⚡ Quick Product Catalog
+                                                </h3>
+                                                <p className="text-xs text-slate-500">Click a product to instantly scan into active cart</p>
+                                            </div>
+
+                                            {/* Search Bar */}
+                                            <div className="flex items-center gap-2 flex-1 max-w-md">
+                                                <div className="relative flex-1">
+                                                    <span className="absolute left-3.5 top-2.5 text-slate-400 text-xs">🔍</span>
+                                                    <input 
+                                                        type="text" 
+                                                        placeholder="Search product or enter SKU..." 
+                                                        value={searchQuery}
+                                                        onChange={e => setSearchQuery(e.target.value)}
+                                                        className="w-full text-xs pl-9 pr-3 py-2.5 border border-slate-300 rounded-2xl font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white shadow-sm"
+                                                    />
+                                                </div>
+                                                <button onClick={() => addItem(searchQuery)} className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-4 py-2.5 rounded-2xl shadow transition shrink-0">
+                                                    Add
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Category Filters Bar */}
+                                        <div className="flex items-center gap-2 overflow-x-auto pb-1 shrink-0">
+                                            {CATEGORIES.map(cat => (
+                                                <button
+                                                    key={cat.id}
+                                                    onClick={() => setSelectedCategory(cat.id)}
+                                                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition font-outfit flex items-center gap-1.5 shrink-0 ${
+                                                        selectedCategory === cat.id
+                                                            ? 'bg-slate-900 text-white shadow-md'
+                                                            : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
+                                                    }`}
+                                                >
+                                                    <span>{cat.icon}</span>
+                                                    <span>{cat.name}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                        {/* Product Grid with Proportional Aspect Ratios & Card Badges */}
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3.5 flex-1 overflow-y-auto min-h-0 pr-1">
+                                            {filteredTopItems.map(item => (
+                                                <div 
+                                                    key={item.sku} 
+                                                    onClick={() => addItem(item.sku)} 
+                                                    className="product-card bg-white border border-slate-200/90 rounded-2xl p-4 flex flex-col justify-between cursor-pointer shadow-sm relative group overflow-hidden"
+                                                >
+                                                    {/* Top Bar inside card: Price Tag Badge */}
+                                                    <div className="flex justify-between items-center w-full mb-2">
+                                                        <span className="text-[10px] text-slate-400 font-mono bg-slate-100 px-2 py-0.5 rounded-md">SKU: {item.sku}</span>
+                                                        <span className="font-outfit font-extrabold text-sm text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-xl border border-blue-100">${item.price.toFixed(2)}</span>
+                                                    </div>
+
+                                                    {/* Center Product Icon Circle */}
+                                                    <div className="flex flex-col items-center justify-center my-3">
+                                                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-slate-50 to-blue-50/60 border border-slate-100 flex items-center justify-center text-4xl shadow-inner group-hover:scale-110 transition-transform">
+                                                            {item.icon}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Bottom Info & Action */}
+                                                    <div className="text-center pt-2 border-t border-slate-100">
+                                                        <div className="font-outfit font-bold text-xs text-slate-800 truncate">{item.name}</div>
+                                                        <span className="text-[10px] text-slate-400 font-medium block mt-0.5">{item.category}</span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        {/* Custom SKU Bar */}
+                                        <div className="p-3.5 bg-white border border-slate-200 rounded-2xl flex items-center gap-3 shrink-0 shadow-sm">
+                                            <span className="text-xl">⌨️</span>
+                                            <input 
+                                                type="text" 
+                                                placeholder="Enter custom SKU (e.g. 100003)" 
+                                                value={skuInput} 
+                                                onChange={e => setSkuInput(e.target.value)}
+                                                className="flex-1 text-xs p-2.5 border border-slate-200 rounded-xl font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 bg-slate-50"
+                                            />
+                                            <button onClick={() => addItem(skuInput)} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-outfit font-extrabold text-xs px-6 py-2.5 rounded-xl shadow-md transition shrink-0">
+                                                Add SKU
+                                            </button>
+                                        </div>
+                                    </div>
                                 )}
                             </div>
 
-                            {/* Fixed Bottom Checkout Footer (Never hidden!) */}
-                            <div className="p-3 sm:p-4 bg-white border-t border-gray-200 shadow-lg shrink-0">
-                                <div className="space-y-1 text-xs sm:text-sm text-gray-600 mb-3">
-                                    <div className="flex justify-between font-medium"><span>Subtotal:</span> <span>${totals.subtotal.toFixed(2)}</span></div>
-                                    <div className="flex justify-between text-green-600 font-medium"><span>Discount:</span> <span>-${totals.discount.toFixed(2)}</span></div>
-                                    <div className="flex justify-between font-medium"><span>Tax:</span> <span>${totals.tax.toFixed(2)}</span></div>
-                                    <div className="flex justify-between text-lg sm:text-xl font-black text-gray-900 pt-2 border-t border-gray-200">
-                                        <span>Total:</span> <span>${totals.total.toFixed(2)}</span>
-                                    </div>
-                                </div>
-
-                                {status === 'IDLE' || status === 'COMPLETED' ? (
-                                    <button onClick={createOrder} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition shadow text-sm sm:text-base">
-                                        Start New Order ▶️
-                                    </button>
-                                ) : status === 'OPEN' ? (
-                                    <button 
-                                        onClick={() => setStatus('CHECKOUT')} 
-                                        disabled={items.length === 0}
-                                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:text-gray-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition shadow text-sm sm:text-base"
-                                    >
-                                        Proceed to Checkout ▶️
-                                    </button>
-                                ) : status === 'CHECKOUT' ? (
-                                    <div className="flex flex-col gap-2">
-                                        <div className="flex gap-2">
-                                            <div className="relative flex-1">
-                                                <span className="absolute left-3 top-2.5 text-gray-500 font-bold">$</span>
-                                                <input 
-                                                    type="text" 
-                                                    placeholder="0.00" 
-                                                    className="w-full pl-7 pr-2 py-2 bg-gray-50 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm sm:text-base"
-                                                    value={cashInput ? (parseInt(cashInput || '0', 10) / 100).toFixed(2) : ''}
-                                                    onChange={e => setCashInput(e.target.value.replace(/\D/g, ''))}
-                                                />
-                                            </div>
-                                            <button 
-                                                onClick={payCash}
-                                                className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-xl transition shadow text-sm"
-                                            >
-                                                Pay Cash
-                                            </button>
-                                        </div>
-                                        <button onClick={() => setStatus('OPEN')} className="text-xs text-gray-500 font-medium hover:text-gray-700">
-                                            ← Back to Cart
-                                        </button>
-                                    </div>
-                                ) : status === 'PAID' ? (
-                                    <button onClick={finalizeOrder} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition shadow text-sm sm:text-base">
-                                        🧾 Print Receipt & Finalize
-                                    </button>
-                                ) : null}
-                            </div>
                         </div>
-
-                        {/* RIGHT PANEL: Manual SKU & Quick Items */}
-                        <div className="w-full md:w-7/12 lg:w-8/12 bg-gray-50/50 p-3 sm:p-5 flex flex-col overflow-y-auto relative min-h-0">
-                            
-                            {/* Receipt Overlay */}
-                            {status === 'COMPLETED' && receipt ? (
-                                <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm flex flex-col items-center justify-center p-4 z-20 overflow-y-auto">
-                                    <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-2xl w-full max-w-md my-auto">
-                                        <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-3">
-                                            <h2 className="text-base sm:text-lg font-bold text-gray-800">Transaction Completed</h2>
-                                            <span className="text-green-500 text-xl">✅</span>
-                                        </div>
-                                        <pre className="font-mono text-xs text-gray-700 bg-gray-50 p-4 rounded-lg border border-gray-200 whitespace-pre-wrap max-h-60 overflow-y-auto mb-4">
-                                            {receipt}
-                                        </pre>
-                                        <button onClick={createOrder} className="w-full bg-gray-900 hover:bg-gray-800 text-white font-bold py-3 rounded-xl transition shadow text-sm">
-                                            Start New Order
-                                        </button>
-                                    </div>
-                                </div>
-                            ) : null}
-                            
-                            {/* SKU Form */}
-                            <div className="bg-white p-3 sm:p-4 rounded-xl shadow-sm border border-gray-200 mb-4 shrink-0">
-                                <h3 className="font-bold text-gray-800 text-xs sm:text-sm mb-2 flex items-center gap-2">
-                                    🔍 Manual SKU Entry
-                                </h3>
-                                <form onSubmit={e => { e.preventDefault(); addItem(skuInput); }} className="flex gap-2">
-                                    <input 
-                                        type="text" 
-                                        placeholder="Scan or type SKU (e.g. 100001)" 
-                                        className="flex-1 px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-xs sm:text-sm"
-                                        value={skuInput}
-                                        onChange={e => setSkuInput(e.target.value)}
-                                        disabled={status !== 'OPEN' && status !== 'IDLE'}
-                                    />
-                                    <button 
-                                        type="submit" 
-                                        disabled={(status !== 'OPEN' && status !== 'IDLE') || !skuInput}
-                                        className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold py-2 px-4 rounded-lg transition text-xs sm:text-sm shrink-0"
-                                    >
-                                        Add Item
-                                    </button>
-                                </form>
-                            </div>
-
-                            {/* Quick Items Grid */}
-                            <div className="flex-1 overflow-y-auto min-h-0">
-                                <h3 className="font-bold text-gray-800 mb-3 text-xs sm:text-sm">Quick Selection (Most Purchased)</h3>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 sm:gap-3">
-                                    {TOP_ITEMS.map(item => (
-                                        <button 
-                                            key={item.sku}
-                                            onClick={() => addItem(item.sku)}
-                                            disabled={status !== 'OPEN' && status !== 'IDLE'}
-                                            className="bg-white hover:bg-blue-50 hover:border-blue-300 disabled:opacity-50 p-3 sm:p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col items-center text-center transition group active:scale-95"
-                                        >
-                                            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gray-50 rounded-full flex items-center justify-center mb-2 group-hover:bg-blue-100 transition-colors text-sm">
-                                                🏷️
-                                            </div>
-                                            <span className="font-bold text-gray-800 text-xs mb-1 line-clamp-1">{item.name}</span>
-                                            <span className="text-blue-600 font-black text-xs sm:text-sm">${item.price.toFixed(2)}</span>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-
                     </div>
                 </div>
             );

@@ -1,0 +1,415 @@
+openapi: 3.0.3
+info:
+  title: RetailAI Ops Agent Integration & Observability API
+  description: |
+    Dedicated OpenAPI 3.0 specification for AI Ops LLM Agents, RAG assistants, and L1/L2 autonomous remediation systems.
+    
+    This specification provides machine-readable contracts for:
+    1. Real-time telemetry consumption (SSE Stream `/stream` and historical REST buffer `/logs`)
+    2. Dynamic multi-lane store topology discovery (`/config`)
+    3. Operational readiness probing (`/ready` DB ping status)
+    4. Structured log schemas (`POSLog`) with fast filtering parameters (`event_type`, `category`, `lane_id`)
+    5. Error classification rules (`BUSINESS` vs `INFRASTRUCTURE`)
+    6. Chaos engineering failure injection APIs (`POST /simulation/failures`)
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8085
+    description: Telemetry Service (Central Nervous System & Ingestion Hub)
+  - url: http://localhost:8081
+    description: Order Service
+  - url: http://localhost:8083
+    description: Payment Service
+  - url: http://localhost:8084
+    description: Finalize Service
+
+tags:
+  - name: AI Observability & Stream
+    description: Real-time telemetry streaming, historical log fetching, and dynamic store configuration
+  - name: Operational Health & Readiness Probes
+    description: Liveness (/health) and active dependency readiness (/ready) endpoints for automated AI health checks
+  - name: Chaos Engineering & Simulation
+    description: Synthetic failure injection APIs for testing AI self-healing and RAG incident response
+
+paths:
+  /stream:
+    get:
+      tags:
+        - AI Observability & Stream
+      summary: Real-Time Telemetry SSE Stream
+      description: |
+        Server-Sent Events (SSE) endpoint emitting real-time JSON `POSLog` events.
+        AI Agents should connect to this stream to perform continuous anomaly detection without polling.
+      servers:
+        - url: http://localhost:8085
+      responses:
+        '200':
+          description: Event stream established
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/POSLog'
+
+  /logs:
+    get:
+      tags:
+        - AI Observability & Stream
+      summary: Fetch Historical Telemetry Logs
+      description: |
+        Retrieves historical log events from memory and persistent log disk buffer (`logs/pos_telemetry.jsonl`).
+        Supports filtering by trace ID, store, lane, error category, or event type for RAG root cause analysis.
+      servers:
+        - url: http://localhost:8085
+      parameters:
+        - name: trace_id
+          in: query
+          required: false
+          description: Filter logs by distributed transaction trace ID (e.g. TRC-82931)
+          schema:
+            type: string
+        - name: order_no
+          in: query
+          required: false
+          description: Filter logs by POS order number (e.g. ORD-10025)
+          schema:
+            type: string
+        - name: service
+          in: query
+          required: false
+          description: Filter by microservice name (order-service, payment-service, finalize-service)
+          schema:
+            type: string
+        - name: level
+          in: query
+          required: false
+          description: Filter by log level (INFO, WARN, ERROR)
+          schema:
+            type: string
+        - name: category
+          in: query
+          required: false
+          description: Filter by error category (BUSINESS vs INFRASTRUCTURE)
+          schema:
+            $ref: '#/components/schemas/ErrorCategoryEnum'
+        - name: store_id
+          in: query
+          required: false
+          description: Filter by store location ID (e.g. STORE-104)
+          schema:
+            type: string
+        - name: lane_id
+          in: query
+          required: false
+          description: Filter by checkout register lane ID (e.g. LANE-01, LANE-03)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Array of structured POSLog objects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/POSLog'
+
+  /config:
+    get:
+      tags:
+        - AI Observability & Stream
+      summary: Discover Dynamic Store & Multi-Lane Configuration
+      description: |
+        Returns store identity metadata, multi-lane matrix (lanes, types, max item policies), active cashiers roster, and telemetry URLs.
+        AI Agents call this endpoint on boot for dynamic store topology auto-discovery.
+      servers:
+        - url: http://localhost:8085
+      responses:
+        '200':
+          description: Store configuration object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StoreConfig'
+
+  /ready:
+    get:
+      tags:
+        - Operational Health & Readiness Probes
+      summary: Microservice Dependency Readiness Probe
+      description: |
+        Active readiness probe that tests database connection (`db.Ping()`).
+        AI Agents call `/ready` after performing self-healing (e.g., container restart) to verify operational status.
+        Available on ports 8081 (Order), 8083 (Payment), and 8084 (Finalize).
+      responses:
+        '200':
+          description: Service is operational and ready to process requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+        '503':
+          description: Service dependency (PostgreSQL) is down or chaos is injected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+
+  /health:
+    get:
+      tags:
+        - Operational Health & Readiness Probes
+      summary: Microservice Process Liveness Check
+      description: Returns process liveness status. Available on ports 8081, 8083, 8084, 8085.
+      responses:
+        '200':
+          description: Process is running
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                    example: order-service
+                  status:
+                    type: string
+                    example: UP
+                  version:
+                    type: string
+                    example: 1.0.0
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /simulation/failures:
+    post:
+      tags:
+        - Chaos Engineering & Simulation
+      summary: Inject Chaos & Synthetic Failure Modes
+      description: |
+        Endpoint for Dev/QA chaos engineering and AI self-healing demonstrations.
+        Allows enabling or disabling synthetic failure scenarios on demand.
+        Available on ports 8081, 8083, and 8084.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChaosInjectionRequest'
+      responses:
+        '200':
+          description: Chaos injection state updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: updated
+                  type:
+                    type: string
+                    example: PAYMENT_TIMEOUT
+                  enabled:
+                    type: boolean
+                    example: true
+
+components:
+  schemas:
+    POSLog:
+      type: object
+      description: Enriched structured JSON telemetry payload emitted across all POS microservices.
+      required:
+        - timestamp
+        - service
+        - level
+        - message
+        - store_id
+        - lane_id
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-09-23T21:14:00Z"
+        incident_id:
+          type: string
+          description: Correlated AI Ops incident ID (e.g. INC-1042)
+          example: "INC-1042"
+        trace_id:
+          type: string
+          description: Unique distributed transaction correlation ID
+          example: "TRC-82931"
+        order_no:
+          type: string
+          description: Retail order identifier
+          example: "ORD-10025"
+        service:
+          type: string
+          description: Source microservice name
+          example: "payment-service"
+        operation:
+          type: string
+          description: High-level business operation (e.g., payment, order_creation, finalize)
+          example: "payment"
+        level:
+          type: string
+          description: Log severity (INFO, WARN, ERROR)
+          example: "ERROR"
+        event_type:
+          type: string
+          description: Fast AI filter event code (e.g., PAYMENT_FAILED, DATABASE_CONNECTION_FAILED, ITEM_LIMIT_EXCEEDED)
+          example: "PAYMENT_FAILED"
+        category:
+          $ref: '#/components/schemas/ErrorCategoryEnum'
+        http_status:
+          type: integer
+          description: HTTP response status code
+          example: 400
+        error_code:
+          type: string
+          description: Machine-readable error code (e.g., ERR_INSUFFICIENT_CASH, ERR_DATABASE_UNAVAILABLE)
+          example: "ERR_INSUFFICIENT_CASH"
+        message:
+          type: string
+          description: Human-readable error sentence
+          example: "Insufficient cash received: Cash ($5.00) is less than Amount Due ($9.73)"
+        dependency:
+          type: string
+          description: Downstream component name (e.g., postgresql, payment-gateway)
+          example: "postgresql"
+        dependency_status:
+          type: string
+          description: Downstream status (UP, DOWN, DEGRADED)
+          example: "UP"
+        duration_ms:
+          type: integer
+          description: Execution duration in milliseconds
+          example: 14
+        store_id:
+          type: string
+          description: Store location identifier
+          example: "STORE-104"
+        lane_id:
+          type: string
+          description: Checkout register lane ID (e.g. LANE-01, LANE-03)
+          example: "LANE-02"
+        lane_type:
+          type: string
+          description: Register lane classification (CASHIER_EXPRESS, CASHIER_BELT, SELF_CHECKOUT)
+          example: "CASHIER_BELT"
+        cashier_id:
+          type: string
+          description: Operating cashier / customer ID (e.g. CASHIER-102, CUSTOMER_SELF)
+          example: "CASHIER-102"
+        environment:
+          type: string
+          description: Deployment environment (dev, staging, prod)
+          example: "dev"
+        metadata:
+          type: object
+          description: Additional key-value context dictionary
+          example:
+            cash_received: 5.00
+            amount_due: 9.73
+
+    ErrorCategoryEnum:
+      type: string
+      description: |
+        AI Remediation Classification:
+        - `BUSINESS`: Client/cashier error (insufficient cash, item limit exceeded). AI Agent MUST NOT attempt container restart or infra remediation.
+        - `INFRASTRUCTURE`: System/network error (DB connection dropped, container crashed, timeout). AI Agent SHOULD trigger SOP recovery or container restart.
+      enum:
+        - BUSINESS
+        - INFRASTRUCTURE
+      example: "BUSINESS"
+
+    ChaosInjectionRequest:
+      type: object
+      required:
+        - type
+        - enabled
+      properties:
+        type:
+          type: string
+          description: Failure scenario code (PAYMENT_TIMEOUT, DATABASE_UNAVAILABLE, STALE_CATALOG, PAYMENT_SERVICE_DOWN, LATENCY_SPIKE)
+          example: "PAYMENT_TIMEOUT"
+        enabled:
+          type: boolean
+          description: Toggle state (true to activate failure, false to clear)
+          example: true
+        duration_ms:
+          type: integer
+          description: Delay or timeout duration in milliseconds
+          example: 5000
+
+    ReadinessResponse:
+      type: object
+      properties:
+        service:
+          type: string
+          example: "payment-service"
+        status:
+          type: string
+          description: Service readiness state (READY or NOT_READY)
+          example: "READY"
+        dependencies:
+          type: object
+          properties:
+            postgresql:
+              type: string
+              example: "UP"
+        timestamp:
+          type: string
+          format: date-time
+
+    StoreConfig:
+      type: object
+      properties:
+        store:
+          type: object
+          properties:
+            store_id:
+              type: string
+              example: "STORE-104"
+            store_name:
+              type: string
+              example: "Metro Retail Store #104"
+            currency:
+              type: string
+              example: "USD"
+            default_tax_rate:
+              type: number
+              example: 8.5
+            environment:
+              type: string
+              example: "dev"
+        cashiers:
+          type: array
+          items:
+            type: object
+            properties:
+              cashier_id:
+                type: string
+              name:
+                type: string
+              role:
+                type: string
+              avatar:
+                type: string
+        lanes:
+          type: array
+          items:
+            type: object
+            properties:
+              lane_id:
+                type: string
+              lane_name:
+                type: string
+              lane_type:
+                type: string
+              cashier_id:
+                type: string
+              icon:
+                type: string
+              max_items_limit:
+                type: integer

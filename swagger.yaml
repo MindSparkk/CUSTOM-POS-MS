@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: Retail POS Microservices API
-  description: API documentation for the Retail Point of Sale (POS) backend microservices.
-  version: 1.1.0
+  description: API documentation for the Retail Point of Sale (POS) backend microservices with AI-observable telemetry, multi-lane context headers, and chaos injection endpoints.
+  version: 1.2.0
 servers:
   - url: http://localhost:8081
     description: Order Service
@@ -15,22 +15,22 @@ servers:
 
 tags:
   - name: Order Service
-    description: Endpoints for managing carts and items
+    description: Endpoints for managing carts, item lookup, item voiding, and order calculations
   - name: Payment Service
-    description: Endpoints for processing cash
+    description: Endpoints for processing cash transactions and validating tendered amounts
   - name: Finalize Service
-    description: Endpoints for finalizing orders and generating receipts
+    description: Endpoints for finalizing orders, stock deduction, and receipt generation
   - name: Telemetry Service
-    description: Logging, ingestion, and real-time streaming endpoints
+    description: Logging, ingestion, configuration, and real-time streaming endpoints
 
 paths:
   /health:
     get:
-      summary: Health Check Endpoint
-      description: Returns health status of the service (Available on ports 8081, 8083, 8084, 8085).
+      summary: Process Liveness Health Check Endpoint
+      description: Returns process liveness status of the service (Available on ports 8081, 8083, 8084, 8085).
       responses:
         '200':
-          description: Service is healthy
+          description: Process is running
           content:
             application/json:
               schema:
@@ -38,9 +38,73 @@ paths:
                 properties:
                   service:
                     type: string
+                    example: order-service
                   status:
                     type: string
                     example: UP
+                  version:
+                    type: string
+                    example: 1.0.0
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /ready:
+    get:
+      summary: Dependency Readiness Endpoint
+      description: Returns operational readiness and active database connection ping status (Available on ports 8081, 8083, 8084).
+      responses:
+        '200':
+          description: Service is operational and ready to process transactions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+        '503':
+          description: Service dependencies (PostgreSQL) are down or chaos injected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+
+  /simulation/failures:
+    post:
+      summary: Chaos & Failure Injection Endpoint
+      description: Inject synthetic timeouts or database failures for Dev Mode AI Ops testing (Available on ports 8081, 8083, 8084).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - type:
+                - enabled:
+              properties:
+                type:
+                  type: string
+                  example: PAYMENT_TIMEOUT
+                enabled:
+                  type: boolean
+                  example: true
+                duration_ms:
+                  type: integer
+                  example: 5000
+      responses:
+        '200':
+          description: Simulation failure state updated successfully
+
+  /config:
+    get:
+      tags:
+        - Telemetry Service
+      summary: Get Central Store & Multi-Lane Configuration
+      description: Returns store identity, multi-lane matrix, telemetry ingestion endpoints, and business validation policies.
+      servers:
+        - url: http://localhost:8085
+      responses:
+        '200':
+          description: Central store configuration object
 
   /orders:
     post:
@@ -50,20 +114,24 @@ paths:
       description: Initializes a new cart session with a unique order number and trace ID.
       servers:
         - url: http://localhost:8081
+      parameters:
+        - $ref: '#/components/parameters/HeaderStoreID'
+        - $ref: '#/components/parameters/HeaderLaneID'
+        - $ref: '#/components/parameters/HeaderLaneType'
+        - $ref: '#/components/parameters/HeaderCashierID'
       responses:
-        '200':
+        '201':
           description: Order created successfully
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  order_no:
-                    type: string
-                    example: ORD-10025
-                  trace_id:
-                    type: string
-                    example: TRC-82931
+                $ref: '#/components/schemas/Order'
+        '500':
+          description: Database or server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/POSError'
 
   /orders/{orderNo}:
     get:
@@ -79,22 +147,28 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: '#/components/parameters/HeaderStoreID'
+        - $ref: '#/components/parameters/HeaderLaneID'
       responses:
         '200':
-          description: Order details
+          description: Order details retrieved
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Order'
         '404':
           description: Order not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/POSError'
 
   /orders/{orderNo}/items:
     post:
       tags:
         - Order Service
       summary: Add item to order
-      description: Adds a product to the cart by SKU.
+      description: Adds a product to the cart by SKU. Validates active lane item limits from config.json.
       servers:
         - url: http://localhost:8081
       parameters:
@@ -103,24 +177,40 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: '#/components/parameters/HeaderStoreID'
+        - $ref: '#/components/parameters/HeaderLaneID'
+        - $ref: '#/components/parameters/HeaderLaneType'
+        - $ref: '#/components/parameters/HeaderCashierID'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required:
+                - sku:
               properties:
                 sku:
                   type: string
                   example: "100001"
                 quantity:
                   type: integer
-                  example: 2
+                  example: 1
       responses:
         '200':
-          description: Item added
+          description: Item added successfully
+        '400':
+          description: Item limit exceeded or order not OPEN
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/POSError'
         '404':
-          description: SKU not found
+          description: SKU not found in catalog
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/POSError'
 
   /orders/{orderNo}/items/{sku}:
     delete:
@@ -141,11 +231,17 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: '#/components/parameters/HeaderStoreID'
+        - $ref: '#/components/parameters/HeaderLaneID'
       responses:
         '200':
           description: Item voided from cart
         '404':
           description: Item not found in cart
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/POSError'
 
   /orders/{orderNo}/calculate:
     post:
@@ -161,6 +257,8 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: '#/components/parameters/HeaderStoreID'
+        - $ref: '#/components/parameters/HeaderLaneID'
       responses:
         '200':
           description: Calculation complete
@@ -187,15 +285,24 @@ paths:
       tags:
         - Payment Service
       summary: Submit cash payment
-      description: Validates transaction amount against cash received and calculates change.
+      description: Validates transaction amount against cash received and calculates change due.
       servers:
         - url: http://localhost:8083
+      parameters:
+        - $ref: '#/components/parameters/HeaderStoreID'
+        - $ref: '#/components/parameters/HeaderLaneID'
+        - $ref: '#/components/parameters/HeaderLaneType'
+        - $ref: '#/components/parameters/HeaderCashierID'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required:
+                - order_no:
+                - amount:
+                - cash_received:
               properties:
                 order_no:
                   type: string
@@ -205,28 +312,23 @@ paths:
                   example: TRC-82931
                 amount:
                   type: number
-                  example: 500.00
+                  example: 9.73
                 cash_received:
                   type: number
-                  example: 1000.00
+                  example: 11.00
       responses:
         '200':
           description: Payment successful
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  order_no:
-                    type: string
-                  trace_id:
-                    type: string
-                  change:
-                    type: number
-                  status:
-                    type: string
+                $ref: '#/components/schemas/Payment'
         '400':
-          description: Insufficient cash or invalid request
+          description: Insufficient cash received or invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/POSError'
 
   /finalize:
     post:
@@ -236,12 +338,19 @@ paths:
       description: Verifies payment, checks stock availability, updates inventory, and marks order as COMPLETED.
       servers:
         - url: http://localhost:8084
+      parameters:
+        - $ref: '#/components/parameters/HeaderStoreID'
+        - $ref: '#/components/parameters/HeaderLaneID'
+        - $ref: '#/components/parameters/HeaderLaneType'
+        - $ref: '#/components/parameters/HeaderCashierID'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required:
+                - order_no:
               properties:
                 order_no:
                   type: string
@@ -254,6 +363,10 @@ paths:
           description: Order finalized successfully
         '400':
           description: Order not paid or insufficient stock
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/POSError'
 
   /orders/{orderNo}/receipt:
     get:
@@ -269,6 +382,8 @@ paths:
           required: true
           schema:
             type: string
+        - $ref: '#/components/parameters/HeaderStoreID'
+        - $ref: '#/components/parameters/HeaderLaneID'
       responses:
         '200':
           description: Receipt generated
@@ -331,28 +446,83 @@ paths:
           description: Event stream (text/event-stream)
 
 components:
+  parameters:
+    HeaderStoreID:
+      name: X-Store-ID
+      in: header
+      required: false
+      description: Store identifier (e.g. STORE-104)
+      schema:
+        type: string
+        default: STORE-104
+    HeaderLaneID:
+      name: X-Lane-ID
+      in: header
+      required: false
+      description: Checkout register lane ID (e.g. LANE-01, LANE-03)
+      schema:
+        type: string
+        default: LANE-01
+    HeaderLaneType:
+      name: X-Lane-Type
+      in: header
+      required: false
+      description: Checkout register lane type (CASHIER_EXPRESS, CASHIER_BELT, SELF_CHECKOUT)
+      schema:
+        type: string
+        default: CASHIER_EXPRESS
+    HeaderCashierID:
+      name: X-Cashier-ID
+      in: header
+      required: false
+      description: Operator / Cashier ID (e.g. CASHIER-101, CUSTOMER_SELF)
+      schema:
+        type: string
+        default: CASHIER-101
+
   schemas:
     Order:
       type: object
       properties:
+        id:
+          type: integer
         order_no:
           type: string
+          example: "ORD-10025"
         trace_id:
           type: string
+          example: "TRC-82931"
+        store_id:
+          type: string
+          example: "STORE-104"
+        lane_id:
+          type: string
+          example: "LANE-03"
+        lane_type:
+          type: string
+          example: "SELF_CHECKOUT"
+        cashier_id:
+          type: string
+          example: "CUSTOMER_SELF"
         status:
           type: string
+          example: "OPEN"
         subtotal:
           type: number
           format: float
+          example: 45.00
         discount:
           type: number
           format: float
+          example: 5.00
         tax:
           type: number
           format: float
+          example: 3.40
         total:
           type: number
           format: float
+          example: 43.40
         items:
           type: array
           items:
@@ -361,20 +531,99 @@ components:
     OrderItem:
       type: object
       properties:
+        id:
+          type: integer
         sku:
           type: string
+          example: "100001"
         name:
           type: string
+          example: "Apples"
         category:
           type: string
+          example: "Produce"
         quantity:
           type: integer
+          example: 2
         unit_price:
           type: number
           format: float
+          example: 4.99
+        discount:
+          type: number
+          format: float
+          example: 0.00
+        tax:
+          type: number
+          format: float
+          example: 0.85
         total:
           type: number
           format: float
+          example: 10.83
+
+    Payment:
+      type: object
+      properties:
+        order_no:
+          type: string
+          example: "ORD-10025"
+        trace_id:
+          type: string
+          example: "TRC-82931"
+        store_id:
+          type: string
+          example: "STORE-104"
+        lane_id:
+          type: string
+          example: "LANE-03"
+        amount:
+          type: number
+          format: float
+          example: 9.73
+        cash_received:
+          type: number
+          format: float
+          example: 11.00
+        change_amount:
+          type: number
+          format: float
+          example: 1.27
+        status:
+          type: string
+          example: "PAID"
+
+    ReadinessResponse:
+      type: object
+      properties:
+        service:
+          type: string
+          example: "payment-service"
+        status:
+          type: string
+          example: "READY"
+        dependencies:
+          type: object
+          properties:
+            postgresql:
+              type: string
+              example: "UP"
+        timestamp:
+          type: string
+          format: date-time
+
+    POSError:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "ERR_INSUFFICIENT_CASH"
+        message:
+          type: string
+          example: "Insufficient cash received: Cash ($5.00) is less than Amount Due ($9.73)"
+        category:
+          type: string
+          example: "BUSINESS"
 
     POSLog:
       type: object
@@ -382,7 +631,10 @@ components:
         timestamp:
           type: string
           format: date-time
-          example: "2026-09-22T15:30:00Z"
+          example: "2026-09-23T21:14:00Z"
+        incident_id:
+          type: string
+          example: "INC-1042"
         trace_id:
           type: string
           example: "TRC-82931"
@@ -398,14 +650,44 @@ components:
         level:
           type: string
           example: "ERROR"
+        event_type:
+          type: string
+          example: "PAYMENT_FAILED"
+        category:
+          type: string
+          example: "BUSINESS"
         http_status:
           type: integer
-          example: 503
+          example: 400
         error_code:
           type: string
-          example: "ERR_PAYMENT_FAILED"
+          example: "ERR_INSUFFICIENT_CASH"
         message:
           type: string
-          example: "Payment gateway connection refused"
+          example: "Insufficient cash received: Cash ($5.00) is less than Amount Due ($9.73)"
+        dependency:
+          type: string
+          example: "postgresql"
+        dependency_status:
+          type: string
+          example: "UP"
+        duration_ms:
+          type: integer
+          example: 12
+        store_id:
+          type: string
+          example: "STORE-104"
+        lane_id:
+          type: string
+          example: "LANE-02"
+        lane_type:
+          type: string
+          example: "CASHIER_BELT"
+        cashier_id:
+          type: string
+          example: "CASHIER-102"
+        environment:
+          type: string
+          example: "dev"
         metadata:
           type: object
