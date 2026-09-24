@@ -24,13 +24,121 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        const TELEMETRY_API = 'http://localhost:8085';
-        const SERVICE_PORTS = {
-            'order-service': 8081,
-            'payment-service': 8083,
-            'finalize-service': 8084
+        const DEFAULT_SERVER_CONFIG = {
+            host: 'localhost',
+            port_order: 8081,
+            port_payment: 8083,
+            port_finalize: 8084,
+            port_telemetry: 8085
         };
+
+        const getServerConfig = () => {
+            try {
+                const stored = localStorage.getItem('serverConfig');
+                return stored ? JSON.parse(stored) : DEFAULT_SERVER_CONFIG;
+            } catch {
+                return DEFAULT_SERVER_CONFIG;
+            }
+        };
+
+        const saveServerConfig = (config) => {
+            localStorage.setItem('serverConfig', JSON.stringify(config));
+        };
+
+        const config = getServerConfig();
+        const TELEMETRY_API = `http://${config.host}:${config.port_telemetry}`;
+        const SERVICE_PORTS = {
+            'order-service': config.port_order,
+            'payment-service': config.port_payment,
+            'finalize-service': config.port_finalize
+        };
+        const SERVER_HOST = config.host;
         const SERVICES = ['order-service', 'payment-service', 'finalize-service'];
+
+        function ConfigDialog({ isOpen, onClose }) {
+            const [configState, setConfigState] = useState(getServerConfig());
+
+            const handleSave = () => {
+                saveServerConfig(configState);
+                window.location.reload();
+            };
+
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-slate-800 rounded-2xl shadow-2xl p-6 w-96 max-w-full mx-4 border border-slate-700">
+                        <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                            ⚙️ Server Configuration
+                        </h2>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-semibold text-slate-300 mb-1">Server Host</label>
+                                <input
+                                    type="text"
+                                    value={configState.host}
+                                    onChange={e => setConfigState({...configState, host: e.target.value})}
+                                    className="w-full px-3 py-2 border border-slate-600 bg-slate-900 text-white rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="localhost or IP address"
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-300 mb-1">Order Port</label>
+                                    <input
+                                        type="number"
+                                        value={configState.port_order}
+                                        onChange={e => setConfigState({...configState, port_order: parseInt(e.target.value)})}
+                                        className="w-full px-3 py-2 border border-slate-600 bg-slate-900 text-white rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-300 mb-1">Payment Port</label>
+                                    <input
+                                        type="number"
+                                        value={configState.port_payment}
+                                        onChange={e => setConfigState({...configState, port_payment: parseInt(e.target.value)})}
+                                        className="w-full px-3 py-2 border border-slate-600 bg-slate-900 text-white rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-300 mb-1">Finalize Port</label>
+                                    <input
+                                        type="number"
+                                        value={configState.port_finalize}
+                                        onChange={e => setConfigState({...configState, port_finalize: parseInt(e.target.value)})}
+                                        className="w-full px-3 py-2 border border-slate-600 bg-slate-900 text-white rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-300 mb-1">Telemetry Port</label>
+                                    <input
+                                        type="number"
+                                        value={configState.port_telemetry}
+                                        onChange={e => setConfigState({...configState, port_telemetry: parseInt(e.target.value)})}
+                                        className="w-full px-3 py-2 border border-slate-600 bg-slate-900 text-white rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex gap-3 mt-6">
+                            <button
+                                onClick={onClose}
+                                className="flex-1 px-4 py-2 bg-slate-700 text-slate-200 font-semibold rounded-lg hover:bg-slate-600 transition"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSave}
+                                className="flex-1 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition"
+                            >
+                                Save & Reload
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
 
         function LogItem({ log, globalShowJson }) {
             const [expanded, setExpanded] = useState(false);
@@ -118,12 +226,13 @@
             const [selectedLane, setSelectedLane] = useState('ALL');
             const [serviceStatus, setServiceStatus] = useState({});
             const [globalShowJson, setGlobalShowJson] = useState(true);
+            const [showConfigDialog, setShowConfigDialog] = useState(false);
 
             // Swagger /ready health check polling
             const checkReadiness = () => {
                 SERVICES.forEach(svc => {
                     const port = SERVICE_PORTS[svc];
-                    fetch(`http://localhost:${port}/ready`)
+                    fetch(`http://${SERVER_HOST}:${port}/ready`)
                         .then(res => res.json())
                         .then(data => {
                             setServiceStatus(prev => ({ ...prev, [svc]: data.status }));
@@ -214,7 +323,8 @@
 
             return (
                 <div className="h-full w-full flex flex-col p-3 sm:p-4 mx-auto max-w-7xl overflow-hidden space-y-3">
-                    
+                    <ConfigDialog isOpen={showConfigDialog} onClose={() => setShowConfigDialog(false)} />
+
                     {/* HEADER */}
                     <header className="flex justify-between items-center bg-slate-950 p-3 rounded-xl border border-slate-800 shrink-0">
                         <div className="flex items-center gap-3">
@@ -225,19 +335,26 @@
                         </div>
 
                         <div className="flex items-center gap-3">
-                            <button 
+                            <button
+                                onClick={() => setShowConfigDialog(true)}
+                                className="text-xs px-3 py-1 rounded-lg font-mono font-bold border bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200 transition"
+                            >
+                                ⚙️ Server
+                            </button>
+
+                            <button
                                 onClick={() => setGlobalShowJson(!globalShowJson)}
                                 className={`text-xs px-3 py-1 rounded-lg font-mono font-bold border transition ${
-                                    globalShowJson 
-                                        ? 'bg-emerald-950 text-emerald-300 border-emerald-700 shadow-[0_0_8px_rgba(16,185,129,0.3)]' 
+                                    globalShowJson
+                                        ? 'bg-emerald-950 text-emerald-300 border-emerald-700 shadow-[0_0_8px_rgba(16,185,129,0.3)]'
                                         : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-slate-200'
                                 }`}
                             >
                                 {globalShowJson ? '📄 Raw JSON Mode: ON' : '📄 Raw JSON Mode: OFF'}
                             </button>
 
-                            <select 
-                                value={selectedLane} 
+                            <select
+                                value={selectedLane}
                                 onChange={e => setSelectedLane(e.target.value)}
                                 className="bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded px-2.5 py-1 font-mono"
                             >

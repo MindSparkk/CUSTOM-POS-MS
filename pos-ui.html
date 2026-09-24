@@ -37,10 +37,32 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        const ORDER_API = 'http://localhost:8081';
-        const PAYMENT_API = 'http://localhost:8083';
-        const FINALIZE_API = 'http://localhost:8084';
-        const TELEMETRY_API = 'http://localhost:8085';
+        const DEFAULT_SERVER_CONFIG = {
+            host: 'localhost',
+            port_order: 8081,
+            port_payment: 8083,
+            port_finalize: 8084,
+            port_telemetry: 8085
+        };
+
+        const getServerConfig = () => {
+            try {
+                const stored = localStorage.getItem('serverConfig');
+                return stored ? JSON.parse(stored) : DEFAULT_SERVER_CONFIG;
+            } catch {
+                return DEFAULT_SERVER_CONFIG;
+            }
+        };
+
+        const saveServerConfig = (config) => {
+            localStorage.setItem('serverConfig', JSON.stringify(config));
+        };
+
+        const config = getServerConfig();
+        const ORDER_API = `http://${config.host}:${config.port_order}`;
+        const PAYMENT_API = `http://${config.host}:${config.port_payment}`;
+        const FINALIZE_API = `http://${config.host}:${config.port_finalize}`;
+        const TELEMETRY_API = `http://${config.host}:${config.port_telemetry}`;
 
         const CASHIERS = [
             { cashier_id: 'CASHIER-101', name: 'Sarah Jenkins', role: 'SENIOR_CASHIER', avatar: '👩‍💼' },
@@ -76,6 +98,91 @@
             { sku: '100109', name: 'Laundry Detergent', category: 'Household', price: 11.99, icon: '🧴' }
         ];
 
+        function ConfigDialog({ isOpen, onClose }) {
+            const [configState, setConfigState] = useState(getServerConfig());
+
+            const handleSave = () => {
+                saveServerConfig(configState);
+                window.location.reload();
+            };
+
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-2xl shadow-2xl p-6 w-96 max-w-full mx-4">
+                        <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            ⚙️ Server Configuration
+                        </h2>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-semibold text-slate-600 mb-1">Server Host</label>
+                                <input
+                                    type="text"
+                                    value={configState.host}
+                                    onChange={e => setConfigState({...configState, host: e.target.value})}
+                                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="localhost or IP address"
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-600 mb-1">Order Port</label>
+                                    <input
+                                        type="number"
+                                        value={configState.port_order}
+                                        onChange={e => setConfigState({...configState, port_order: parseInt(e.target.value)})}
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-600 mb-1">Payment Port</label>
+                                    <input
+                                        type="number"
+                                        value={configState.port_payment}
+                                        onChange={e => setConfigState({...configState, port_payment: parseInt(e.target.value)})}
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-600 mb-1">Finalize Port</label>
+                                    <input
+                                        type="number"
+                                        value={configState.port_finalize}
+                                        onChange={e => setConfigState({...configState, port_finalize: parseInt(e.target.value)})}
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-semibold text-slate-600 mb-1">Telemetry Port</label>
+                                    <input
+                                        type="number"
+                                        value={configState.port_telemetry}
+                                        onChange={e => setConfigState({...configState, port_telemetry: parseInt(e.target.value)})}
+                                        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex gap-3 mt-6">
+                            <button
+                                onClick={onClose}
+                                className="flex-1 px-4 py-2 bg-slate-200 text-slate-800 font-semibold rounded-lg hover:bg-slate-300 transition"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSave}
+                                className="flex-1 px-4 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition"
+                            >
+                                Save & Reload
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
         function App() {
             const [storeId, setStoreId] = useState('STORE-104');
             const [lanes, setLanes] = useState(INITIAL_LANES);
@@ -83,6 +190,7 @@
             const [activeCashierId, setActiveCashierId] = useState('CASHIER-101');
             const [newLaneName, setNewLaneName] = useState('');
             const [showAddLane, setShowAddLane] = useState(false);
+            const [showConfigDialog, setShowConfigDialog] = useState(false);
             const [activeFailures, setActiveFailures] = useState({});
             const [searchQuery, setSearchQuery] = useState('');
             const [selectedCategory, setSelectedCategory] = useState('ALL');
@@ -393,6 +501,7 @@
 
             return (
                 <div className="h-screen w-screen flex flex-col bg-slate-900 p-2 sm:p-4 overflow-hidden select-none">
+                    <ConfigDialog isOpen={showConfigDialog} onClose={() => setShowConfigDialog(false)} />
                     <div className="h-full w-full max-w-[1600px] mx-auto bg-slate-50 rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-slate-700/50">
                         
                         {/* SLEEK GLASSMORPHIC CONTROL HEADER */}
@@ -475,19 +584,23 @@
                             <div className="flex items-center gap-2">
                                 <div className="flex items-center gap-1.5 bg-slate-900 px-2.5 py-1 rounded-2xl border border-slate-800">
                                     <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Chaos:</span>
-                                    <button 
+                                    <button
                                         onClick={() => toggleChaos('DATABASE_UNAVAILABLE')}
                                         className={`text-[10px] px-2 py-1 rounded-xl font-bold transition ${activeFailures['DATABASE_UNAVAILABLE'] ? 'bg-red-600 text-white shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'}`}
                                     >
                                         DB Fail
                                     </button>
-                                    <button 
+                                    <button
                                         onClick={() => toggleChaos('PAYMENT_TIMEOUT')}
                                         className={`text-[10px] px-2 py-1 rounded-xl font-bold transition ${activeFailures['PAYMENT_TIMEOUT'] ? 'bg-red-600 text-white shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 'bg-slate-950 text-slate-400 hover:text-white border border-slate-800'}`}
                                     >
                                         Pay Timeout
                                     </button>
                                 </div>
+
+                                <button onClick={() => setShowConfigDialog(true)} className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-3.5 py-1.5 rounded-2xl font-bold transition flex items-center gap-1.5 shadow-md font-outfit border border-slate-600">
+                                    ⚙️ Server
+                                </button>
 
                                 <button onClick={() => window.open('monitor-ui.html', '_blank', 'width=1250,height=850')} className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-1.5 rounded-2xl font-bold transition flex items-center gap-1.5 shadow-md font-outfit border border-emerald-400/30">
                                     🟢 Live Monitor

@@ -102,6 +102,169 @@ Open [`pos-ui.html`](file:///c:/Users/vinay/OneDrive/Desktop/apps/goposms/POS-Go
 
 ---
 
+## 🌐 Option 3: Remote Server Setup (Rocky OS / Linux - Go Services)
+
+Use this method to run POS Go services directly on a Linux server (Rocky OS 8+, Ubuntu 20.04+, CentOS 8+) with existing PostgreSQL.
+
+### Prerequisites
+* **Linux Server**: Rocky OS 8+, Ubuntu 20.04+, CentOS 8+
+* **Go 1.20+**: Already installed on your server
+* **PostgreSQL 15+**: Already installed on your server
+* **Git**: `sudo dnf install git` or `sudo apt install git`
+* **Network Access**: Firewall allows ports 8081, 8083, 8084, 8085 from your office network
+
+---
+
+## ⚙️ ONE-TIME SETUP
+
+### Step 1: Clone Repository
+```bash
+ssh user@remote-server-ip
+cd /path/to/workspace
+git clone <repository-url> POS-Go-MS
+cd POS-Go-MS
+```
+
+### Step 2: Initialize PostgreSQL Database
+```bash
+# Create database
+sudo -u postgres createdb posdb
+
+# Set postgres user password
+sudo -u postgres psql -d posdb -c "ALTER USER postgres WITH PASSWORD 'posdbpass123';"
+
+# Initialize schema & seed data
+cat init-db.sql | sudo -u postgres psql -d posdb
+```
+
+### Step 3: Configure PostgreSQL Authentication
+Edit `/var/lib/pgsql/16/data/pg_hba.conf` (or your version):
+
+```bash
+sudo vim /var/lib/pgsql/16/data/pg_hba.conf
+```
+
+Add these lines after the `local postgres` line:
+```
+local        all            all                                    scram-sha-256
+hostnossl    all            all            127.0.0.1/32            scram-sha-256
+```
+
+Restart PostgreSQL:
+```bash
+sudo systemctl restart postgresql-16
+```
+
+## 🔄 EVERY TIME - Start Services
+
+### Step 5: Create Startup Script (Optional but Recommended)
+```bash
+cat > /root/POS-Go-MS/start-services.sh << 'EOF'
+#!/bin/bash
+export DATABASE_URL="postgresql://postgres:posdbpass123@localhost:5432/posdb?sslmode=disable"
+#export RETAIL_AI_BACKEND_URL="http://localhost:8085/ingest"
+
+echo "Starting all 4 POS services..."
+cd /root/POS-Go-MS
+
+# Terminal 1: Telemetry Service (start first)
+(cd services/telemetry-service && go run main.go) &
+
+# Wait for telemetry to be ready
+sleep 2
+
+# Terminal 2: Order Service
+(cd services/order-service && go run main.go) &
+
+# Terminal 3: Payment Service
+(cd services/payment-service && go run main.go) &
+
+# Terminal 4: Finalize Service
+(cd services/finalize-service && go run main.go) &
+
+echo "All services started. Open pos-ui.html in your browser."
+echo "Click ⚙️ Server and enter: Host=$(hostname -I | awk '{print $1}'), Ports: 8081, 8083, 8084, 8085"
+
+wait
+EOF
+
+chmod +x /root/POS-Go-MS/start-services.sh
+```
+
+### Step 6: Start Services
+**Option A: Using startup script (easier):**
+```bash
+/root/POS-Go-MS/start-services.sh
+```
+
+**Option B: Manual (in 4 separate terminals):**
+```bash
+# Terminal 1 - Telemetry Service (start FIRST)
+export DATABASE_URL="postgresql://postgres:posdbpass123@localhost:5432/posdb?sslmode=disable"
+cd /root/POS-Go-MS/services/telemetry-service
+go run main.go
+
+# Terminal 2 - Order Service
+export DATABASE_URL="postgresql://postgres:posdbpass123@localhost:5432/posdb?sslmode=disable"
+cd /root/POS-Go-MS/services/order-service
+go run main.go
+
+# Terminal 3 - Payment Service
+export DATABASE_URL="postgresql://postgres:posdbpass123@localhost:5432/posdb?sslmode=disable"
+cd /root/POS-Go-MS/services/payment-service
+go run main.go
+
+# Terminal 4 - Finalize Service
+export DATABASE_URL="postgresql://postgres:posdbpass123@localhost:5432/posdb?sslmode=disable"
+cd /root/POS-Go-MS/services/finalize-service
+go run main.go
+```
+
+Each should show:
+```
+{"timestamp":"...","service":"order-service","level":"INFO","message":"Starting order service on port 8081"...}
+```
+
+### Step 7: Access from Office Laptop
+
+1. **Get your server IP:**
+   ```bash
+   hostname -I
+   ```
+
+2. **Open `pos-ui.html`** in your browser (from your local machine)
+
+3. **Click ⚙️ Server** button in header
+
+4. **Configure server:**
+   - **Host**: Your server IP (e.g., `192.168.1.100`)
+   - **Ports**: 8081, 8083, 8084, 8085
+   - Click **Save & Reload**
+
+5. **Test**: Scan a product and process payment!
+
+---
+
+## 🔧 Troubleshooting
+
+**Symptom**: `password authentication failed for user "postgres"`
+- **Fix**: Make sure `DATABASE_URL` has correct password: `posdbpass123`
+- Run: `echo $DATABASE_URL` to verify it's set
+
+**Symptom**: `pg_hba.conf rejects connection`
+- **Fix**: Verify pg_hba.conf has the `hostnossl` line for 127.0.0.1
+- Restart PostgreSQL: `sudo systemctl restart postgresql-16`
+
+**Symptom**: "Order is not OPEN for payment"
+- **Fix**: Ensure ALL 4 services have the same `DATABASE_URL` set
+- Check payment-service logs for connection errors
+
+**Symptom**: Services won't start
+- **Fix**: Check Go is installed: `go version`
+- Check database is running: `sudo systemctl status postgresql-16`
+
+---
+
 ## 💡 Free Docker Alternatives for Corporate Laptops
 
 If you want to use containers on your corporate laptop without Docker Desktop licensing issues:

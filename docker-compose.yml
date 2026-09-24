@@ -7,11 +7,15 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: posdb
+      POSTGRES_INITDB_ARGS: "-c search_path=public"
     ports:
-      - "5433:5432"
+      - "0.0.0.0:5433:5432"
     volumes:
       - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
       - postgres_data:/var/lib/postgresql/data
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d posdb"]
       interval: 5s
@@ -25,12 +29,15 @@ services:
       args:
         SERVICE_NAME: telemetry-service
     ports:
-      - "8085:8085"
+      - "0.0.0.0:8085:8085"
     environment:
       - RETAIL_AI_BACKEND_URL=${RETAIL_AI_BACKEND_URL:-}
     volumes:
       - ./logs:/app/logs
       - ./config.json:/app/config.json
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     depends_on:
       - postgres
 
@@ -41,12 +48,15 @@ services:
       args:
         SERVICE_NAME: order-service
     ports:
-      - "8081:8081"
+      - "0.0.0.0:8081:8081"
     environment:
       - DATABASE_URL=postgres://postgres:postgres@postgres:5432/posdb?sslmode=disable
       - RETAIL_AI_BACKEND_URL=http://telemetry-service:8085/ingest
     volumes:
       - ./config.json:/app/config.json
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,12 +68,15 @@ services:
       args:
         SERVICE_NAME: payment-service
     ports:
-      - "8083:8083"
+      - "0.0.0.0:8083:8083"
     environment:
       - DATABASE_URL=postgres://postgres:postgres@postgres:5432/posdb?sslmode=disable
       - RETAIL_AI_BACKEND_URL=http://telemetry-service:8085/ingest
     volumes:
       - ./config.json:/app/config.json
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,12 +88,15 @@ services:
       args:
         SERVICE_NAME: finalize-service
     ports:
-      - "8084:8084"
+      - "0.0.0.0:8084:8084"
     environment:
       - DATABASE_URL=postgres://postgres:postgres@postgres:5432/posdb?sslmode=disable
       - RETAIL_AI_BACKEND_URL=http://telemetry-service:8085/ingest
     volumes:
       - ./config.json:/app/config.json
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     depends_on:
       postgres:
         condition: service_healthy
