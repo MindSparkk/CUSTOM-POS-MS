@@ -726,25 +726,21 @@ tail -100 /root/POS-Go-MS/logs/order-service.log
 
 #### Resolution (Step-by-Step)
 
-**Option A: Restart Service (Preferred)**
+**Option A: Restart Service via API (Recommended for AI Agent)**
 ```bash
-# Kill the service
-pkill -f "services/order-service"
+# API call to restart order service gracefully
+curl -X POST http://172.28.142.25:8081/admin/restart \
+  -H "Content-Type: application/json"
 
-# Wait 2 seconds
-sleep 2
+# Response:
+# {"status":"restarting","message":"Service will restart shortly"}
 
-# Verify it's dead
-ps aux | grep "order-service" | grep -v grep
+# Service will exit and restart automatically (via process manager or start-services.sh loop)
 
-# Start fresh
-cd /root/POS-Go-MS/services/order-service
-export DATABASE_URL="postgresql://postgres:posdbpass123@localhost:5432/posdb?sslmode=disable"
-go run main.go &
-
-# Verify it started
+# Wait 3 seconds and verify it's back
 sleep 3
-curl -s http://172.28.142.25:8081/health | jq .
+curl -s http://172.28.142.25:8081/health
+# Expected: {"service":"order-service","status":"UP"}
 ```
 
 **Option B: Restart All Services via Script**
@@ -792,39 +788,36 @@ grep "password authentication failed" /root/POS-Go-MS/logs/payment-service.log
 
 #### Resolution
 
-**Option A: Restart Payment Service Only**
+**Option A: Restart Payment Service via API**
 ```bash
-# Kill payment service
-pkill -f "services/payment-service"
-sleep 2
+# Call API to restart payment service
+curl -X POST http://172.28.142.25:8083/admin/restart \
+  -H "Content-Type: application/json"
 
-# Start it
-cd /root/POS-Go-MS/services/payment-service
-export DATABASE_URL="postgresql://postgres:posdbpass123@localhost:5432/posdb?sslmode=disable"
-go run main.go &
+# Response:
+# {"status":"restarting","message":"Service will restart shortly"}
 
-# Wait and verify
+# Wait 3 seconds
 sleep 3
+
+# Verify it's back
 curl http://172.28.142.25:8083/health
 ```
 
 **Option B: If Database Connection Issue**
 ```bash
-# Check PostgreSQL is running
-sudo systemctl status postgresql-16
+# First, check if database is running
+curl http://172.28.142.25:8081/ready
+# If response shows {"postgresql": "DOWN"}, database is the issue
 
-# If not, start it
-sudo systemctl start postgresql-16
+# AI Agent can:
+# 1. Check database availability
+# 2. Restart payment service via API (will auto-reconnect when DB is up)
+curl -X POST http://172.28.142.25:8083/admin/restart
 
-# Verify postgres is accepting connections
-sudo -u postgres psql -d posdb -c "SELECT 1" 
-
-# Then restart payment service
-pkill -f "services/payment-service"
-sleep 2
-cd /root/POS-Go-MS/services/payment-service
-export DATABASE_URL="postgresql://postgres:posdbpass123@localhost:5432/posdb?sslmode=disable"
-go run main.go &
+# 3. Verify readiness
+sleep 3
+curl http://172.28.142.25:8083/ready
 ```
 
 #### Verification
@@ -861,16 +854,14 @@ curl http://172.28.142.25:8084/health
 #### Resolution
 
 ```bash
-# Kill and restart
-pkill -f "services/finalize-service"
-sleep 2
+# API-based restart
+curl -X POST http://172.28.142.25:8084/admin/restart \
+  -H "Content-Type: application/json"
 
-cd /root/POS-Go-MS/services/finalize-service
-export DATABASE_URL="postgresql://postgres:posdbpass123@localhost:5432/posdb?sslmode=disable"
-go run main.go &
-
-# Verify
+# Wait 3 seconds for restart
 sleep 3
+
+# Verify health
 curl http://172.28.142.25:8084/health
 ```
 
@@ -1293,6 +1284,142 @@ sudo -u postgres psql -d posdb -c "UPDATE orders SET status='FINALIZED' WHERE or
 # Verify
 sudo -u postgres psql -d posdb -c "SELECT order_no, status FROM orders WHERE order_no='ORD-YOUR-ORDER-NUMBER'"
 ```
+
+---
+
+## 🤖 AI Agent Resolution Flow
+
+Since the AI agent is on a **remote server**, use **API-based resolutions** instead of shell commands:
+
+### Detection → Diagnosis → Resolution Flow
+
+```
+1. DETECT (Automated Health Checks)
+   GET /health on all services
+   └─ HTTP 500 or timeout = Service DOWN
+   
+2. DIAGNOSE (Check Dependencies)
+   GET /ready on failing service
+   └─ Response shows which dependency failed (postgresql: DOWN)
+   
+3. ATTEMPT API FIXES (Preferred)
+   - Disable chaos failures: POST /simulation/failures {enabled: false}
+   - Restart service: POST /admin/restart
+   - Re-check health: GET /health
+   
+4. VERIFY RECOVERY
+   GET /health → HTTP 200 ✅
+   
+5. IF STILL FAILING → ESCALATE
+   Create ServiceNow ticket for human operator
+```
+
+### AI Agent JavaScript Implementation
+
+```javascript
+async function handleServiceFailure(serviceName, port) {
+  console.log(`[AI] Detected ${serviceName} failure on port ${port}`);
+  
+  // Step 1: Check health
+  const health = await fetch(`http://172.28.142.25:${port}/health`);
+  if (health.ok) {
+    console.log(`[AI] ${serviceName} is UP - no action needed`);
+    return true;
+  }
+  
+  console.log(`[AI] ${serviceName} is DOWN - attempting API recovery`);
+  
+  // Step 2: Check if any chaos failures are active
+  const failuresRes = await fetch(`http://172.28.142.25:${port}/simulation/failures`, {
+    method: 'POST',
+    body: JSON.stringify({
+      type: 'DATABASE_UNAVAILABLE',
+      enabled: false
+    })
+  });
+  console.log(`[AI] Disabled all chaos failures`);
+  
+  // Step 3: Restart the service via API
+  console.log(`[AI] Calling /admin/restart on ${serviceName}`);
+  const restartRes = await fetch(`http://172.28.142.25:${port}/admin/restart`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  
+  if (restartRes.ok) {
+    const result = await restartRes.json();
+    console.log(`[AI] Restart initiated: ${result.message}`);
+  }
+  
+  // Step 4: Wait for restart and verify
+  console.log(`[AI] Waiting 3 seconds for service to restart...`);
+  await new Promise(resolve => setTimeout(resolve, 3000));
+  
+  const healthCheck = await fetch(`http://172.28.142.25:${port}/health`);
+  if (healthCheck.ok) {
+    const status = await healthCheck.json();
+    console.log(`[AI] ✅ ${serviceName} recovered: ${status.status}`);
+    return true;
+  }
+  
+  // Step 5: If still failing, escalate
+  console.log(`[AI] ❌ ${serviceName} still failing after restart - ESCALATING`);
+  await createServiceNowTicket({
+    service: serviceName,
+    port: port,
+    issue: 'Service failed to recover after API restart',
+    timestamp: new Date().toISOString()
+  });
+  
+  return false;
+}
+
+// Usage: When AI agent detects an incident
+async function monitorAndRecover() {
+  const services = [
+    { name: 'Order', port: 8081 },
+    { name: 'Payment', port: 8083 },
+    { name: 'Finalize', port: 8084 },
+    { name: 'Telemetry', port: 8085 }
+  ];
+  
+  for (const service of services) {
+    try {
+      const recovered = await handleServiceFailure(service.name, service.port);
+      if (!recovered) {
+        console.log(`[AI] Manual intervention required for ${service.name}`);
+      }
+    } catch (error) {
+      console.error(`[AI] Error handling ${service.name}:`, error);
+    }
+  }
+}
+```
+
+### Endpoints AI Agent Should Use
+
+| Endpoint | Method | Purpose | AI Can Use |
+|----------|--------|---------|-----------|
+| `/health` | GET | Quick health check | ✅ Yes |
+| `/ready` | GET | Check dependencies | ✅ Yes |
+| `/admin/restart` | POST | Restart service | ✅ Yes |
+| `/simulation/failures` | POST | Disable chaos | ✅ Yes |
+| `/admin/logs` | GET | Get service logs | ✅ Future |
+
+### What AI Agent CAN Do (API-Based)
+- ✅ Detect issues via health checks
+- ✅ Check service dependencies  
+- ✅ Disable chaos failure injections
+- ✅ Restart services gracefully
+- ✅ Verify recovery
+- ✅ Create escalation tickets
+
+### What Requires Human Operator (SSH)
+- ❌ Restart PostgreSQL (`systemctl restart postgresql-16`)
+- ❌ Check disk space (`df -h`)
+- ❌ View system logs (`journalctl`)
+- ❌ Network troubleshooting
+- ❌ Data recovery
 
 ---
 

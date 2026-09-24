@@ -53,6 +53,7 @@ func main() {
 	r.HandleFunc("/health", healthHandler).Methods("GET", "OPTIONS")
 	r.HandleFunc("/ready", readinessHandler).Methods("GET", "OPTIONS")
 	r.HandleFunc("/simulation/failures", failureInjectionHandler).Methods("POST", "OPTIONS")
+	r.HandleFunc("/admin/restart", adminRestartHandler).Methods("POST", "OPTIONS")
 
 	// Finalization & Receipts
 	r.HandleFunc("/finalize", finalizeHandler).Methods("POST", "OPTIONS")
@@ -175,6 +176,15 @@ func failureInjectionHandler(w http.ResponseWriter, r *http.Request) {
 
 	slog.Warn("Finalize simulation failure state updated", "type", req.Type, "enabled", req.Enabled)
 	writeJSON(w, http.StatusOK, map[string]interface{}{"status": "updated", "type": req.Type, "enabled": req.Enabled})
+}
+
+func adminRestartHandler(w http.ResponseWriter, r *http.Request) {
+	slog.Warn("Admin restart requested - service will restart in 1 second")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "restarting", "message": "Service will restart shortly"})
+	go func() {
+		time.Sleep(1 * time.Second)
+		os.Exit(0)
+	}()
 }
 
 func finalizeHandler(w http.ResponseWriter, r *http.Request) {

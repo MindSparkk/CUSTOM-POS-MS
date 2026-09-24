@@ -97,6 +97,7 @@ func main() {
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(models.HealthResponse{Service: "telemetry-service", Status: "UP"})
 	}).Methods("GET", "OPTIONS")
+	r.HandleFunc("/admin/restart", adminRestartHandler).Methods("POST", "OPTIONS")
 	r.HandleFunc("/config", getConfigHandler).Methods("GET", "OPTIONS")
 	r.HandleFunc("/ingest", ingestHandler).Methods("POST", "OPTIONS")
 	r.HandleFunc("/logs", getLogsHandler).Methods("GET", "OPTIONS") // For initial load
@@ -116,6 +117,16 @@ func main() {
 	}
 
 	slog.Error("Server stopped", "error", srv.ListenAndServe())
+}
+
+func adminRestartHandler(w http.ResponseWriter, r *http.Request) {
+	slog.Warn("Admin restart requested - service will restart in 1 second")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "restarting", "message": "Service will restart shortly"})
+	go func() {
+		time.Sleep(1 * time.Second)
+		os.Exit(0)
+	}()
 }
 
 func ingestHandler(w http.ResponseWriter, r *http.Request) {

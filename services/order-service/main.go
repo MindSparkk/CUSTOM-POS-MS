@@ -51,11 +51,12 @@ func main() {
 	initDB()
 
 	r := mux.NewRouter()
-	
+
 	// Health & Readiness
 	r.HandleFunc("/health", healthHandler).Methods("GET", "OPTIONS")
 	r.HandleFunc("/ready", readinessHandler).Methods("GET", "OPTIONS")
 	r.HandleFunc("/simulation/failures", failureInjectionHandler).Methods("POST", "OPTIONS")
+	r.HandleFunc("/admin/restart", adminRestartHandler).Methods("POST", "OPTIONS")
 
 	// Order Operations
 	r.HandleFunc("/orders", createOrderHandler).Methods("POST", "OPTIONS")
@@ -189,6 +190,15 @@ func failureInjectionHandler(w http.ResponseWriter, r *http.Request) {
 
 	slog.Warn("Simulation failure state updated", "type", req.Type, "enabled", req.Enabled, "duration_ms", req.DurationMS)
 	writeJSON(w, http.StatusOK, map[string]interface{}{"status": "updated", "type": req.Type, "enabled": req.Enabled})
+}
+
+func adminRestartHandler(w http.ResponseWriter, r *http.Request) {
+	slog.Warn("Admin restart requested - service will restart in 1 second")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "restarting", "message": "Service will restart shortly"})
+	go func() {
+		time.Sleep(1 * time.Second)
+		os.Exit(0)
+	}()
 }
 
 func createOrderHandler(w http.ResponseWriter, r *http.Request) {

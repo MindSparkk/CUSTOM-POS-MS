@@ -100,6 +100,29 @@ paths:
                   dependencies:
                     type: object
 
+  /admin/restart:
+    post:
+      tags:
+        - Admin
+      summary: Gracefully restart service
+      description: Triggers graceful service restart. Service will exit and restart automatically.
+      responses:
+        200:
+          description: Restart initiated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: restarting
+                  message:
+                    type: string
+                    example: Service will restart shortly
+        500:
+          description: Internal error
+
   # ============== ORDER SERVICE (8081) ==============
   /orders:
     post:
@@ -344,26 +367,6 @@ paths:
           description: Order not in PAYMENT_COMPLETED status
 
   # ============== TELEMETRY SERVICE (8085) ==============
-  /health:
-    get:
-      tags:
-        - Health
-      summary: Telemetry service health
-      responses:
-        200:
-          description: Service UP
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  service:
-                    type: string
-                    example: telemetry-service
-                  status:
-                    type: string
-                    example: UP
-
   /events:
     get:
       tags:
