@@ -7,6 +7,31 @@
 
 ---
 
+## ⛔ AI Agent Restrictions (ENFORCED)
+
+The AI Agent **SHALL NOT**:
+
+1. **Edit pg_hba.conf or postgresql.conf** - Database configuration changes require human review
+2. **Change database passwords** - Password management must go through admin procedures
+3. **Drop databases, schemas, tables, or partitions** - No destructive database operations
+4. **Delete business data** - No removal of orders, payments, or customer records
+5. **Run UPDATE/DELETE against production business tables** - No direct database mutations
+6. **Modify firewall or network configuration** - Network policy changes require security review
+7. **Reboot the server** - No full server restarts without human authorization (service restarts via systemctl are allowed)
+8. **Execute rm -rf or destructive filesystem operations** - No file system cleanup
+9. **Modify partman configuration** - Table partitioning changes are manual-only
+10. **Change persistent environment configuration** - Config changes require restart, use startup script
+
+**AI Agent CAN:**
+- ✅ Restart services: `systemctl restart postgresql-16` or `/admin/restart` API endpoint
+- ✅ Check service status: `systemctl status` or health endpoints
+- ✅ Disable chaos failures via API: POST `/simulation/failures`
+- ✅ View logs for diagnostics
+
+**Consequence:** Any operation violating these restrictions must be escalated to a human operator immediately.
+
+---
+
 ## 🏗️ System Architecture
 
 ### Services Overview
@@ -1074,42 +1099,24 @@ sudo cat /var/lib/pgsql/16/data/pg_hba.conf | grep -E "local|hostnossl"
 
 #### Root Causes & Resolution
 
-**Case A: Password Mismatch**
-```bash
-# If password doesn't work, reset it
-sudo -u postgres psql -d posdb -c "ALTER USER postgres WITH PASSWORD 'posdbpass123';"
+**Password Authentication Failed → ESCALATE TO HUMAN OPERATOR**
 
-# Restart PostgreSQL to apply
-sudo systemctl restart postgresql-16
+⚠️ **AI Agent Cannot Fix:** Changing database passwords violates security policy (Restriction #2)
 
-# Verify new password
-PGPASSWORD=posdbpass123 psql -h localhost -U postgres -d posdb -c "SELECT 1"
+**What the AI Agent Should Do:**
+1. Detect the error: `password authentication failed for user "postgres"`
+2. Check logs: `grep "password authentication failed" /root/POS-Go-MS/logs/*.log`
+3. **Immediately escalate** to database administrator with:
+   - Error message
+   - Service that failed (order/payment/finalize)
+   - Current DATABASE_URL setting (without password)
+   - Timestamp of failure
 
-# Restart all services
-pkill -f 'go run main.go'
-sleep 2
-cd /root/POS-Go-MS
-./start-services.sh
-```
-
-**Case B: pg_hba.conf Not Configured**
-```bash
-# Edit pg_hba.conf
-sudo nano /var/lib/pgsql/16/data/pg_hba.conf
-
-# Add these lines (if missing):
-# local        all            all                                    scram-sha-256
-# hostnossl    all            all            127.0.0.1/32            scram-sha-256
-
-# Restart PostgreSQL
-sudo systemctl restart postgresql-16
-
-# Restart all POS services
-pkill -f 'go run main.go'
-sleep 2
-cd /root/POS-Go-MS
-./start-services.sh
-```
+**What Human Operator Must Do:**
+- Reset password: `ALTER USER postgres WITH PASSWORD '...'`
+- Update configuration management system
+- Restart PostgreSQL
+- Notify AI agent of new credentials (if dynamic config supported)
 
 ---
 
@@ -1204,33 +1211,33 @@ sudo -u postgres psql -d posdb -c "SELECT table_name FROM information_schema.tab
 
 #### Resolution
 
-**Option A: Data Exists But Service Fails**
-- Likely a database connection issue → See **Section 5: PostgreSQL Database Down**
+**Option A: Service Connection Issue**
+- Check if database is running: `GET /ready` on any service
+- If response shows `{"postgresql": "DOWN"}`, database is unavailable → See **Section 5: PostgreSQL Database Down**
+- If database is UP but order still missing, see **Option B**
 
-**Option B: Reinitialize Database**
-```bash
-# Backup current data (optional)
-sudo -u postgres pg_dump -d posdb > /tmp/posdb_backup.sql
+**Option B: Database Corruption or Data Loss → ESCALATE TO HUMAN OPERATOR**
 
-# Drop and recreate database
-sudo -u postgres dropdb posdb
-sudo -u postgres createdb posdb
+⚠️ **AI Agent Cannot Fix:** These operations violate security policy:
+- Dropping databases (Restriction #3)
+- Reinitializing data (Restriction #4)
+- Directly modifying business data (Restriction #5)
 
-# Reload schema
-cat /root/POS-Go-MS/init-db.sql | sudo -u postgres psql -d posdb
+**What AI Agent Should Do:**
+1. Verify database is reachable: `GET /ready`
+2. Query for order: Check if record exists
+3. Check service logs for error details
+4. **Immediately escalate** to DBA with:
+   - Order number that's missing
+   - Query results showing absence/corruption
+   - Service error logs
+   - Transaction timestamp
 
-# Set password
-sudo -u postgres psql -d posdb -c "ALTER USER postgres WITH PASSWORD 'posdbpass123';"
-
-# Restart PostgreSQL
-sudo systemctl restart postgresql-16
-
-# Restart all services
-pkill -f 'go run main.go'
-sleep 2
-cd /root/POS-Go-MS
-./start-services.sh
-```
+**What Human Operator Must Do:**
+- Investigate data loss root cause
+- Restore from backup if available: `pg_restore /path/to/backup.sql`
+- Or reinitialize database schema from init-db.sql
+- Verify data integrity before resuming operations
 
 ---
 
@@ -1276,14 +1283,17 @@ curl -X POST http://172.28.142.25:8084/finalize \
   -d '{"order_no":"ORD-YOUR-ORDER-NUMBER"}'
 ```
 
-**Option B: Manually Update Order Status (Emergency)**
-```bash
-# CAUTION: Use only if finalize-service cannot be restored
-sudo -u postgres psql -d posdb -c "UPDATE orders SET status='FINALIZED' WHERE order_no='ORD-YOUR-ORDER-NUMBER'"
+**Option B: Manual Status Update → ESCALATE TO HUMAN OPERATOR**
 
-# Verify
-sudo -u postgres psql -d posdb -c "SELECT order_no, status FROM orders WHERE order_no='ORD-YOUR-ORDER-NUMBER'"
-```
+⚠️ **AI Agent Cannot Fix:** Directly modifying business data violates security policy (Restriction #5)
+
+If finalize service cannot be restored:
+1. Escalate to human operator with:
+   - Order number stuck
+   - Current status from database
+   - Finalize service restart attempt logs
+   - How long it's been stuck
+2. Human operator can manually update order status with proper audit trail
 
 ---
 
