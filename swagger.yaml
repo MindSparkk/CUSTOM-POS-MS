@@ -78,8 +78,8 @@ paths:
             schema:
               type: object
               required:
-                - type:
-                - enabled:
+                - type
+                - enabled
               properties:
                 type:
                   type: string
